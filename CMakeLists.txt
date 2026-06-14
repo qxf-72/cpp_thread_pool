@@ -9,6 +9,7 @@ find_package(Threads REQUIRED)
 
 add_executable(threadpool_demo
     test/test.cpp
+    src/threadpool.cpp
 )
 
 target_include_directories(threadpool_demo PRIVATE

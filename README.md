@@ -10,6 +10,7 @@
 
 ![C++](https://img.shields.io/badge/C%2B%2B-17-blue.svg)
 ![CMake](https://img.shields.io/badge/CMake-3.10%2B-brightgreen.svg)
+![GitHub top language](https://img.shields.io/github/languages/top/qxf-72/cpp_thread_pool)
 ![Platform](https://img.shields.io/badge/Platform-Linux%20%7C%20macOS%20%7C%20Windows-lightgrey.svg)
 ![License](https://img.shields.io/badge/License-MIT-yellow.svg)
 
@@ -68,21 +69,8 @@ cpp_thread_pool/
 │   └── threadpool.h
 ├── src/
 │   └── threadpool.cpp
-├── examples/
-│   └── main.cpp
-├── CMakeLists.txt
-├── README.md
-├── README.zh-CN.md
-└── LICENSE
-```
-
-如果当前项目尚未拆分目录，也可以使用：
-
-```text
-cpp_thread_pool/
-├── threadpool.h
-├── threadpool.cpp
-├── main.cpp
+├── example/
+│   └── example.cpp
 ├── CMakeLists.txt
 ├── README.md
 ├── README.zh-CN.md

@@ -1,281 +1,598 @@
-# C++17 ThreadPool
+<div align="center">
 
-[中文文档](README.zh-CN.md)
+# 🧵 cpp_thread_pool
 
-A lightweight thread pool project for learning C++ multithreaded programming.
+一个基于 C++17 实现的轻量级线程池。
 
-This project implements a fixed-size thread pool. It supports submitting regular functions, lambdas, and function objects, while also keeping the traditional `Task` inheritance-based submission style. After a task finishes, the caller can retrieve its return value through `Result::get()`.
+支持提交 Lambda、普通函数及其他可调用对象，支持参数绑定、任意类型返回值、异常传递、任务队列容量限制和线程安全退出。
 
-## Features
 
-- Implemented with C++17
-- Fixed number of worker threads
-- Configurable task queue capacity
-- Supports lambdas, regular functions, and function objects
-- Supports retrieving task return values through `Result`
-- Supports task exception propagation
-- Safely notifies worker threads to exit when the thread pool is destroyed
-- Uses `mutex` and `condition_variable` for thread synchronization
-- Uses a custom `Any` type to store task return values of different types
 
-## Project Structure
+![C++](https://img.shields.io/badge/C%2B%2B-17-blue.svg)
+![CMake](https://img.shields.io/badge/CMake-3.10%2B-brightgreen.svg)
+![Platform](https://img.shields.io/badge/Platform-Linux%20%7C%20macOS%20%7C%20Windows-lightgrey.svg)
+![License](https://img.shields.io/badge/License-MIT-yellow.svg)
+
+⭐ 如果这个项目对你有帮助，欢迎点一个 Star！
+
+</div>
+
+---
+
+## 📖 项目简介
+
+`cpp_thread_pool` 是一个使用 C++17 编写的轻量级线程池。
+
+线程池启动后，会预先创建固定数量的工作线程。用户可以通过 `submit()` 提交 Lambda、普通函数、函数对象以及带参数的可调用对象。
+
+提交的任务会进入线程安全的共享任务队列，空闲工作线程负责取出并执行任务。`submit()` 会返回一个 `Result` 对象，用户可以通过 `Result::get()` 阻塞等待任务完成，并获取任务返回值。
+
+由于不同任务可能返回 `int`、`std::string` 或自定义类型，项目使用自定义 `Any` 类型对返回值进行类型擦除。
+
+本项目主要用于学习和展示线程池的核心设计与运行流程，不建议未经充分测试直接用于生产环境。
+
+## ✨ 功能特性
+
+* 🧵 固定数量的工作线程
+* 📦 线程安全的任务队列
+* λ 支持提交 Lambda 表达式
+* 🔧 支持普通函数和函数对象
+* 📥 支持向任务传递任意数量的参数
+* 🎁 支持任意类型的任务返回值
+* ⏳ 支持阻塞等待任务执行结果
+* 🛡️ 支持任务异常传递
+* 🚦 支持任务队列容量限制
+* 💤 使用条件变量避免线程忙等待
+* 🔐 线程池析构时安全停止并回收线程
+* 🚫 禁止线程池对象拷贝
+
+## 🧰 环境要求
+
+* C++17 或更高版本
+* CMake 3.10 或更高版本
+* 支持 C++ 标准线程库的编译器
+
+推荐环境：
+
+```text
+GCC 9+
+Clang 10+
+MSVC 2019+
+```
+
+## 📁 项目结构
 
 ```text
 cpp_thread_pool/
-+-- include/
-|   +-- threadpool.h
-+-- test/
-|   +-- test.cpp
-+-- README.md
-+-- README.zh-CN.md
-+-- LICENSE
+├── include/
+│   └── threadpool.h
+├── src/
+│   └── threadpool.cpp
+├── examples/
+│   └── main.cpp
+├── CMakeLists.txt
+├── README.md
+├── README.zh-CN.md
+└── LICENSE
 ```
 
-## Requirements
-
-A compiler with C++17 support is required, for example:
-
-- GCC 7+
-- Clang 5+
-- MSVC 2017+
-
-## Quick Start
-
-### 1. Submit a Lambda Task
-
-```cpp
-#include "threadpool.h"
-
-#include <iostream>
-
-int main() {
-  ThreadPool pool;
-  pool.start(4);
-
-  auto result = pool.submit([] {
-    return 40 + 2;
-  });
-
-  int value = result.get().cast_<int>();
-  std::cout << value << std::endl;
-
-  return 0;
-}
-```
-
-Output:
+如果当前项目尚未拆分目录，也可以使用：
 
 ```text
-42
+cpp_thread_pool/
+├── threadpool.h
+├── threadpool.cpp
+├── main.cpp
+├── CMakeLists.txt
+├── README.md
+├── README.zh-CN.md
+└── LICENSE
 ```
 
-### 2. Submit a Task with Arguments
+## 🚀 快速开始
 
-```cpp
-auto result = pool.submit([](int a, int b) {
-  return a + b;
-}, 10, 20);
+### 1️⃣ 克隆仓库
 
-int sum = result.get().cast_<int>();
+```bash
+git clone git@github.com:qxf-72/cpp_thread_pool.git
+cd cpp_thread_pool
 ```
 
-### 3. Submit a Regular Function
+### 2️⃣ 编译项目
 
-```cpp
-int add(int a, int b) {
-  return a + b;
-}
-
-auto result = pool.submit(add, 3, 4);
-int value = result.get().cast_<int>();
+```bash
+cmake -S . -B build
+cmake --build build
 ```
 
-### 4. Submit a Task with No Return Value
+### 3️⃣ 运行示例
 
-```cpp
-auto result = pool.submit([] {
-  // do something
-});
-
-result.get();  // Wait until the task finishes.
+```bash
+./build/thread_pool_demo
 ```
 
-### 5. Use the Traditional Task Inheritance Style
+## 💡 使用示例
+
+### 提交无参数 Lambda
 
 ```cpp
-#include "threadpool.h"
-
+#include <chrono>
 #include <iostream>
-#include <memory>
+#include <thread>
 
-class AddTask : public Task {
- public:
-  Any run() override {
-    return 40 + 2;
-  }
-};
+#include "threadpool.h"
 
 int main() {
   ThreadPool pool;
   pool.start(2);
 
-  auto result = pool.submitTask(std::make_shared<AddTask>());
+  auto result = pool.submit([] {
+    std::this_thread::sleep_for(std::chrono::seconds(1));
+    return 42;
+  });
+
   int value = result.get().cast_<int>();
 
-  std::cout << value << std::endl;
+  std::cout << "result: " << value << '\n';
+
   return 0;
 }
 ```
 
-## Core Design
-
-The core workflow of the thread pool is shown below:
-
-```mermaid
-flowchart LR
-    User["User Thread"] -->|Submit Task| Pool["ThreadPool"]
-    Pool --> Queue["taskQue"]
-    Queue --> Worker["Worker Thread"]
-    Worker -->|Call run| Task["Task"]
-    Task -->|Store Any| State["ResultState"]
-    User -->|Call get| State
-```
-
-### ThreadPool
-
-`ThreadPool` is the main class of the thread pool. It is responsible for:
-
-- Creating and managing worker threads
-- Receiving tasks submitted by users
-- Maintaining the task queue
-- Notifying worker threads to exit when the thread pool is destroyed
-
-### Task
-
-`Task` is the abstract base class for user-defined tasks:
+### 提交带参数 Lambda
 
 ```cpp
-class Task {
- public:
-  virtual ~Task() = default;
-  virtual Any run() = 0;
-};
-```
+#include <iostream>
 
-When using `submitTask()`, users need to inherit from `Task` and override `run()`.
+#include "threadpool.h"
 
-When using the template-based `submit()` interface, the thread pool automatically wraps lambdas, functions, and other callable objects into an internal `FunctionTask`, so users do not need to manually inherit from `Task`.
+int main() {
+  ThreadPool pool;
+  pool.start(2);
 
-### Result and ResultState
+  auto result =
+      pool.submit([](int a, int b) {
+        return a + b;
+      }, 10, 20);
 
-`Result` is the result handle returned to the caller.
+  int value = result.get().cast_<int>();
 
-The actual task result is stored in `ResultState`. It is responsible for:
+  std::cout << "result: " << value << '\n';
 
-- Storing the task return value
-- Storing task exceptions
-- Blocking until the task finishes
-- Waking up the user thread that is waiting for the result
-
-This design avoids storing a raw `Result*` inside `Task`, which reduces the risk of dangling pointers.
-
-### Any
-
-`Any` is used to store return values of arbitrary types.
-
-For example:
-
-```cpp
-auto result = pool.submit([] {
-  return std::string("hello");
-});
-
-std::string value = result.get().cast_<std::string>();
-```
-
-The `Any` type in this project is a learning-oriented implementation of type erasure. C++17 also provides `std::any`, which can be considered in real-world projects.
-
-## Thread Synchronization
-
-The thread pool mainly uses two condition variables:
-
-```cpp
-std::condition_variable notFull_;
-std::condition_variable notEmpty_;
-```
-
-Their meanings are:
-
-- `notEmpty_`: worker threads wait when the task queue is empty; they are woken up when new tasks are submitted
-- `notFull_`: task submitters wait when the task queue is full; they are woken up when worker threads take tasks from the queue
-
-The basic worker thread logic is:
-
-```text
-Wait until the task queue is not empty
-        |
-Take one task
-        |
-Execute task->run()
-        |
-Write the result into ResultState
-        |
-Wait for the next task
-```
-
-## Exception Handling
-
-If a task throws an exception during execution, the worker thread will not crash directly.
-
-The exception is stored in `ResultState`:
-
-```cpp
-try {
-  item.result->setValue(item.task->run());
-} catch (...) {
-  item.result->setException(std::current_exception());
+  return 0;
 }
 ```
 
-When the user calls `Result::get()`, the exception is rethrown in the user thread.
+### 同时提交多个任务
 
-## Notes
+```cpp
+#include <chrono>
+#include <iostream>
+#include <thread>
 
-1. The current version implements a fixed-size thread pool.
+#include "threadpool.h"
 
-2. `ThreadPoolMode::MODE_CACHED` currently does not implement dynamic thread scaling. If this mode is set, the code will throw an exception.
+int main() {
+  ThreadPool pool;
+  pool.start(2);
 
-3. `Result::get()` can only be called once. The current `Any` type uses move semantics, so the result is consumed after it is retrieved.
+  auto r1 = pool.submit([] {
+    std::this_thread::sleep_for(std::chrono::seconds(2));
+    return 42;
+  });
 
-4. `pool.start()` must be called before submitting tasks.
+  auto r2 = pool.submit(
+      [](int a, int b) {
+        return a + b;
+      },
+      10, 20);
 
-5. When the thread pool is destroyed, it waits for worker threads to exit. If there are still pending tasks in the queue, worker threads will try to finish the remaining tasks first.
+  int v1 = r1.get().cast_<int>();
+  int v2 = r2.get().cast_<int>();
 
-## Possible Improvements
+  std::cout << "v1: " << v1 << '\n';
+  std::cout << "v2: " << v2 << '\n';
 
-- Replace the custom `Result` with `std::future` and `std::packaged_task`
-- Replace the custom `Any` with `std::any`
-- Implement dynamic scaling for `MODE_CACHED`
-- Add timeout support for waiting on tasks
-- Add a priority task queue
-- Add unit tests
+  return 0;
+}
+```
 
+可能的输出：
 
-## Learning Topics
+```text
+v1: 42
+v2: 30
+```
 
-This project is suitable for learning:
+### 提交普通函数
 
-- C++17 template programming
-- Type erasure
-- Basic thread pool design
-- Producer-consumer model
-- `std::thread`
-- `std::mutex`
-- `std::condition_variable`
-- `std::shared_ptr`
-- Lifetime management in multithreaded programs
-- Exception propagation between threads
+```cpp
+#include <iostream>
 
-## License
+#include "threadpool.h"
 
-MIT License. This project is mainly intended for learning and practice.
+int multiply(int a, int b) {
+  return a * b;
+}
+
+int main() {
+  ThreadPool pool;
+  pool.start(2);
+
+  auto result = pool.submit(multiply, 6, 7);
+
+  int value = result.get().cast_<int>();
+
+  std::cout << "result: " << value << '\n';
+
+  return 0;
+}
+```
+
+## 🔄 工作流程
+
+```text
+创建 ThreadPool
+        │
+        ▼
+调用 start() 创建工作线程
+        │
+        ▼
+调用 submit(function, args...)
+        │
+        ▼
+绑定可调用对象及其参数
+        │
+        ▼
+创建对应的 ResultState
+        │
+        ▼
+任务进入共享任务队列
+        │
+        ▼
+条件变量唤醒工作线程
+        │
+        ▼
+工作线程执行任务
+        │
+        ▼
+返回值写入 ResultState
+        │
+        ▼
+Result::get() 获取任务结果
+```
+
+## 🧩 核心组件
+
+### 🧵 ThreadPool
+
+线程池主体，负责：
+
+* 创建和管理工作线程
+* 接收用户提交的可调用对象
+* 将任务和参数封装成无参数任务
+* 维护线程安全的任务队列
+* 阻塞和唤醒工作线程
+* 在线程池析构时安全回收线程
+
+用户通过以下接口提交任务：
+
+```cpp
+template <typename Func, typename... Args>
+Result submit(Func&& func, Args&&... args);
+```
+
+其中：
+
+* `Func` 表示可调用对象类型
+* `Args...` 表示传递给任务的参数类型
+* `Result` 表示任务执行结果
+
+### 📦 任务队列
+
+线程池内部维护一个共享任务队列。
+
+`submit()` 会将用户传入的函数和参数绑定为一个可供工作线程直接执行的任务，再将任务放入队列。
+
+当任务队列为空时，工作线程阻塞在 `notEmpty_` 条件变量上，避免持续循环占用 CPU。
+
+当任务队列达到容量上限时，提交任务的线程会阻塞在 `notFull_` 条件变量上，直到队列重新出现空位。
+
+### 🎫 Result
+
+`submit()` 返回一个 `Result` 对象：
+
+```cpp
+auto result = pool.submit([] {
+  return 100;
+});
+```
+
+用户可以通过：
+
+```cpp
+Any value = result.get();
+```
+
+等待任务执行完成。
+
+如果任务尚未完成，`get()` 会阻塞当前调用线程；任务执行完成后，`get()` 返回保存结果的 `Any` 对象。
+
+### 📬 ResultState
+
+`ResultState` 是用户线程和工作线程之间共享的结果状态。
+
+它主要保存：
+
+* 任务返回值
+* 任务是否已经完成
+* 返回值是否已经被消费
+* 任务执行期间产生的异常
+* 用于等待和唤醒的条件变量
+
+工作线程完成任务后调用：
+
+```cpp
+resultState->setValue(...);
+```
+
+用户线程通过：
+
+```cpp
+result.get();
+```
+
+等待并获取结果。
+
+### 🎁 Any
+
+`Any` 是一个自定义类型擦除容器，用于统一保存不同类型的任务返回值。
+
+保存整数：
+
+```cpp
+Any value = 100;
+int number = value.cast_<int>();
+```
+
+保存字符串：
+
+```cpp
+Any value = std::string("hello");
+std::string message = value.cast_<std::string>();
+```
+
+如果取出类型与实际类型不匹配，会抛出异常：
+
+```cpp
+Any value = 100;
+
+// 抛出 std::runtime_error
+std::string message = value.cast_<std::string>();
+```
+
+### 🔧 可调用对象封装
+
+`submit()` 使用模板和完美转发接收不同类型的任务：
+
+```cpp
+pool.submit(func, arg1, arg2, ...);
+```
+
+用户无需继承任务基类，也无需手动创建任务对象。
+
+例如：
+
+```cpp
+pool.submit([] {
+  return 42;
+});
+```
+
+以及：
+
+```cpp
+pool.submit([](int a, int b) {
+  return a + b;
+}, 10, 20);
+```
+
+线程池会在内部完成函数与参数的绑定，并在工作线程中执行。
+
+## 🔐 线程安全退出
+
+线程池析构时会执行以下流程：
+
+```text
+将 isPoolRunning_ 设置为 false
+        │
+        ▼
+唤醒所有正在等待的线程
+        │
+        ▼
+工作线程继续处理队列中的剩余任务
+        │
+        ▼
+任务队列为空后退出
+        │
+        ▼
+主线程调用 join() 等待工作线程结束
+```
+
+典型的工作线程退出条件为：
+
+```cpp
+if (!isPoolRunning_ && taskQue_.empty()) {
+  return;
+}
+```
+
+这意味着线程池停止后，已经成功提交到任务队列中的任务仍会被执行完毕。
+
+## 🛡️ 异常处理
+
+用户提交的任务可能抛出异常：
+
+```cpp
+auto result = pool.submit([]() -> int {
+  throw std::runtime_error("task failed");
+});
+```
+
+工作线程会捕获异常并将其保存到对应的 `ResultState` 中，避免工作线程因为用户任务异常而直接终止。
+
+当用户调用：
+
+```cpp
+result.get();
+```
+
+异常会在调用 `get()` 的线程中重新抛出：
+
+```cpp
+try {
+  int value = result.get().cast_<int>();
+} catch (const std::exception& e) {
+  std::cerr << e.what() << '\n';
+}
+```
+
+## ⚠️ 注意事项
+
+### Result 只能消费一次
+
+当前 `Any` 是只移动类型，`Result::get()` 会将保存的结果移动给调用者。
+
+因此，同一个 `Result` 只能成功调用一次 `get()`：
+
+```cpp
+Any first = result.get();
+Any second = result.get();  // 抛出异常
+```
+
+这种行为与 `std::future::get()` 类似。
+
+### 必须使用正确类型提取结果
+
+任务返回什么类型，就需要使用相同类型调用 `cast_()`：
+
+```cpp
+auto result = pool.submit([] {
+  return 42;
+});
+
+int value = result.get().cast_<int>();
+```
+
+下面的代码会抛出类型不匹配异常：
+
+```cpp
+std::string value = result.get().cast_<std::string>();
+```
+
+### 当前只支持固定线程模式
+
+当前版本只实现固定数量工作线程：
+
+```cpp
+ThreadPoolMode::MODE_FIXED
+```
+
+`MODE_CACHED` 动态线程模式尚未实现。
+
+### 线程池对象只能启动一次
+
+建议每个 `ThreadPool` 对象只调用一次：
+
+```cpp
+pool.start(4);
+```
+
+当前版本不支持停止后重新启动。
+
+## 🚧 当前限制
+
+当前版本暂不支持：
+
+* cached 动态线程模式
+* 空闲线程超时回收
+* 任务取消
+* 任务优先级
+* 工作窃取
+* 无锁任务队列
+* Result 多次读取
+* 线程池停止后重新启动
+* 多种任务拒绝策略
+
+## 🗺️ 后续计划
+
+* [x] 支持 Lambda 表达式提交
+* [x] 支持普通函数和函数对象
+* [x] 支持任务参数传递
+* [x] 支持任意类型返回值
+* [x] 支持任务异常传递
+* [ ] 实现 cached 动态线程模式
+* [ ] 支持空闲线程超时回收
+* [ ] 增加任务提交超时机制
+* [ ] 增加多种任务拒绝策略
+* [ ] 支持任务优先级
+* [ ] 增加线程池运行状态统计
+* [ ] 增加单元测试
+* [ ] 增加性能测试
+* [ ] 增加 GitHub Actions 自动构建
+* [ ] 完善 API 文档
+
+## 📚 学习重点
+
+通过这个项目可以学习：
+
+* `std::thread` 的创建与回收
+* `std::mutex` 和 RAII 锁管理
+* `std::condition_variable`
+* 生产者—消费者模型
+* 线程安全任务队列
+* 可变参数模板
+* 完美转发
+* 可调用对象和参数绑定
+* 智能指针和对象生命周期
+* 类型擦除
+* 异常在线程之间的传递
+* 线程池的安全启动和退出
+
+## 📊 开发状态
+
+本项目目前处于学习和持续完善阶段。
+
+当前版本适合：
+
+* 学习 C++ 并发编程
+* 理解线程池核心流程
+* 学习可变参数模板与完美转发
+* 练习条件变量和生产者—消费者模型
+* 作为 Linux C++ 后端学习项目
+
+> [!WARNING]
+> 本项目主要用于学习和技术交流，不建议未经充分测试直接用于生产环境。
+
+## 🤝 贡献
+
+欢迎提交 Issue 或 Pull Request。
+
+提交代码前建议：
+
+1. 确保代码能够正常编译。
+2. 保持现有代码风格。
+3. 为新增功能补充必要测试。
+4. 在 Pull Request 中说明修改目的和实现方式。
+
+## 📄 许可证
+
+本项目基于 [MIT License](LICENSE) 开源。
+
+---
+
+<div align="center">
+
+如果这个项目对你有帮助，欢迎 ⭐ Star、🍴 Fork 或提交 Issue。
+
+</div>

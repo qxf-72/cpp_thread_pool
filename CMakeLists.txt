@@ -8,7 +8,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 find_package(Threads REQUIRED)
 
 add_executable(threadpool_demo
-    test/test.cpp
+    example/example.cpp
     src/threadpool.cpp
 )
 

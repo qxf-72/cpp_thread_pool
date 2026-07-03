@@ -2,9 +2,11 @@
 
 # cpp_thread_pool
 
-一个基于 **C++17** 的轻量级线程池，用于学习和实践 C++ 并发编程。
+[English](README.md) | [简体中文](README_CN.md)
 
-支持 `std::future`、`std::packaged_task`、固定线程模式、Cached 动态扩容模式、任务异常传递、任务队列限流、1 秒提交超时拒绝、显式关闭和空闲线程自动回收。
+A lightweight **C++17** thread pool for learning and practicing C++ concurrent programming.
+
+It supports `std::future`, `std::packaged_task`, fixed-size workers, cached dynamic scaling, task exception propagation, bounded task queues, 1-second submit timeout rejection, explicit shutdown, and automatic reclamation of idle cached workers.
 
 ![C++](https://img.shields.io/badge/C%2B%2B-17-blue.svg)
 ![CMake](https://img.shields.io/badge/CMake-3.10%2B-brightgreen.svg)
@@ -15,73 +17,74 @@
 
 ---
 
-## 📖 项目简介
+## 📖 Project Overview
 
-`cpp_thread_pool` 是一个小型 C++ 线程池项目，核心目标是展示线程池的基本组成：
+`cpp_thread_pool` is a small C++ thread pool project. Its main goal is to demonstrate the essential parts of a thread pool:
 
-- 工作线程如何等待和消费任务；
-- 用户任务如何通过 `std::future<T>` 返回结果；
-- 异常如何从工作线程传递回提交线程；
-- 固定线程池和动态扩容线程池有什么区别；
-- 队列满、线程池关闭、空闲线程回收等边界情况如何处理。
+- how worker threads wait for and consume tasks;
+- how user tasks return results through `std::future<T>`;
+- how exceptions are propagated from worker threads back to the submitting thread;
+- how a fixed-size pool differs from a dynamically scaling cached pool;
+- how edge cases such as a full queue, pool shutdown, and idle worker reclamation are handled.
 
-当前实现适合学习和小型实验，不建议未经充分测试直接用于生产环境。
+The current implementation is suitable for learning and small experiments. It is not recommended for production use without sufficient testing.
 
-## ✨ 功能特性
+## ✨ Features
 
-- 基于 C++17 标准库实现；
-- 支持 `MODE_FIXED` 固定线程数模式；
-- 支持 `MODE_CACHED` 动态扩容模式；
-- 支持 cached 模式下空闲线程超时回收；
-- 支持设置任务队列容量上限；
-- 队列满时，`submit()` 最多阻塞 1 秒，超时后抛出异常表示提交失败；
-- 支持提交 Lambda、普通函数、函数对象和带参数任务；
-- 自动推导任务返回类型，返回 `std::future<T>`；
-- 支持 `void` 返回值任务；
-- 用户任务抛出的异常会在 `future.get()` 时重新抛出；
-- 支持显式 `shutdown()`，析构时也会自动执行关闭流程；
-- 禁止拷贝线程池对象，避免线程资源所有权混乱。
+- Implemented with the C++17 standard library;
+- supports `MODE_FIXED` fixed-size worker mode;
+- supports `MODE_CACHED` dynamic scaling mode;
+- supports idle worker timeout and reclamation in cached mode;
+- supports configuring the maximum task queue capacity;
+- when the queue is full, `submit()` blocks for at most 1 second and throws an exception if the task cannot be submitted;
+- supports submitting lambdas, free functions, function objects, and callables with arguments;
+- automatically deduces task return types and returns `std::future<T>`;
+- supports tasks with `void` return type;
+- exceptions thrown by user tasks are rethrown when `future.get()` is called;
+- supports explicit `shutdown()`, and also shuts down automatically in the destructor;
+- disables copying of the thread pool object to avoid confusing thread ownership.
 
-## 📁 项目结构
+## 📁 Project Structure
 
 ```text
 cpp_thread_pool/
 ├── include/
-│   └── threadpool.h      # 线程池接口和 submit() 模板实现
+│   └── threadpool.h      # Thread pool interface and submit() template implementation
 ├── src/
-│   └── threadpool.cpp    # 线程池生命周期、工作线程和回收逻辑
+│   └── threadpool.cpp    # Lifecycle, worker thread, and reclamation logic
 ├── example/
-│   └── example.cpp       # 使用示例
+│   └── example.cpp       # Usage example
 ├── CMakeLists.txt
 ├── README.md
+├── README_EN.md
 └── LICENSE
 ```
 
-## 🧰 环境要求
+## 🧰 Requirements
 
-| 工具 | 要求 |
+| Tool | Requirement |
 | --- | --- |
-| C++ 标准 | C++17 或更高 |
-| CMake | 3.10 或更高 |
-| 编译器 | GCC / Clang / MSVC |
+| C++ standard | C++17 or later |
+| CMake | 3.10 or later |
+| Compiler | GCC / Clang / MSVC |
 
-推荐使用 GCC 9+、Clang 10+ 或 MSVC 2019+。
+GCC 9+, Clang 10+, or MSVC 2019+ is recommended.
 
-## 🚀 编译运行
+## 🚀 Build And Run
 
-生成构建目录：
+Generate the build directory:
 
 ```bash
 cmake -S . -B build
 ```
 
-编译：
+Build the project:
 
 ```bash
 cmake --build build
 ```
 
-运行示例：
+Run the example:
 
 ```bash
 # Windows
@@ -91,9 +94,9 @@ cmake --build build
 ./build/threadpool_demo
 ```
 
-## 💡 快速开始
+## 💡 Quick Start
 
-### 固定线程模式
+### Fixed Worker Mode
 
 ```cpp
 #include "threadpool.h"
@@ -113,9 +116,9 @@ int main() {
 }
 ```
 
-`submit()` 会自动推导返回类型。上例中 `result` 的类型是 `std::future<int>`。
+`submit()` automatically deduces the return type. In the example above, `result` is a `std::future<int>`.
 
-### 提交带参数任务
+### Submit A Task With Arguments
 
 ```cpp
 auto result = pool.submit([](int a, int b) {
@@ -125,7 +128,7 @@ auto result = pool.submit([](int a, int b) {
 int value = result.get();
 ```
 
-### 提交普通函数
+### Submit A Free Function
 
 ```cpp
 int add(int a, int b) {
@@ -136,19 +139,19 @@ auto result = pool.submit(add, 3, 4);
 int value = result.get();
 ```
 
-### 提交 void 任务
+### Submit A Void Task
 
 ```cpp
 auto result = pool.submit([] {
   // do something
 });
 
-result.get();  // 等待任务执行完成
+result.get();  // Wait until the task is finished.
 ```
 
-### 任务异常处理
+### Task Exception Handling
 
-任务中抛出的异常会被 `std::packaged_task` 保存，并在调用 `future.get()` 时重新抛出。
+Exceptions thrown inside a task are stored by `std::packaged_task` and rethrown when `future.get()` is called.
 
 ```cpp
 auto result = pool.submit([]() -> int {
@@ -162,44 +165,44 @@ try {
 }
 ```
 
-## ⚡ Cached 模式
+## ⚡ Cached Mode
 
-Cached 模式会根据任务压力动态增加线程数量。
+Cached mode dynamically increases the number of worker threads according to task pressure.
 
-当任务队列中积压的任务数量超过空闲线程数量，并且当前线程数还没有达到上限时，线程池会尝试创建新的工作线程。
+When the number of queued tasks is greater than the number of idle workers, and the current worker count has not reached the configured upper limit, the thread pool attempts to create new worker threads.
 
-当动态创建出来的线程空闲超过指定时间后，会自动退出；线程池随后会回收对应的 `std::thread` 对象，避免已结束线程句柄一直留在容器中。
+When a dynamically created worker remains idle for longer than the configured timeout, it exits automatically. The pool later reclaims the corresponding `std::thread` object, preventing finished thread handles from staying in the worker container forever.
 
 ```cpp
 ThreadPool pool;
 pool.setMode(ThreadPoolMode::MODE_CACHED);
-pool.setThreadSizeThreshHold(8);
+pool.setThreadSizeThreshold(8);
 pool.setThreadMaxIdleTime(std::chrono::seconds(1));
 pool.start(2);
 ```
 
-配置含义：
+Configuration meaning:
 
-| 配置 | 含义 |
+| Configuration | Meaning |
 | --- | --- |
-| `pool.start(2)` | 初始创建 2 个工作线程 |
-| `setThreadSizeThreshHold(8)` | 任务压力变大时最多扩容到 8 个线程 |
-| `setThreadMaxIdleTime(std::chrono::seconds(1))` | 多余线程空闲超过 1 秒后自动退出 |
+| `pool.start(2)` | Initially create 2 worker threads |
+| `setThreadSizeThreshold(8)` | Scale up to at most 8 workers when task pressure grows |
+| `setThreadMaxIdleTime(std::chrono::seconds(1))` | Extra cached workers exit after being idle for more than 1 second |
 
-## ⏱️ 任务提交与拒绝策略
+## ⏱️ Task Submission And Rejection Policy
 
-`submit()` 的行为如下：
+`submit()` behaves as follows:
 
-1. 如果线程池还没有启动，抛出 `std::runtime_error("Thread pool is not running")`。
-2. 如果队列已满，提交线程最多等待 1 秒。
-3. 如果 1 秒内仍没有队列空位，抛出 `std::runtime_error("Task queue is full; submit timed out")`。
-4. 如果等待期间线程池被关闭，抛出 `std::runtime_error("Thread pool has stopped")`。
+1. If the pool has not been started, it throws `std::runtime_error("Thread pool is not running")`.
+2. If the queue is full, the submitting thread waits for at most 1 second.
+3. If no queue slot becomes available within 1 second, it throws `std::runtime_error("Task queue is full; submit timed out")`.
+4. If the pool is shut down while the submitting thread is waiting, it throws `std::runtime_error("Thread pool has stopped")`.
 
-示例：
+Example:
 
 ```cpp
 ThreadPool pool;
-pool.setTaskQueMaxThreshHold(1);
+pool.setTaskQueMaxThreshold(1);
 pool.start(1);
 
 try {
@@ -207,139 +210,140 @@ try {
     return 100;
   });
 } catch (const std::exception &e) {
-  // 队列满、线程池未启动或线程池已关闭时会进入这里。
+  // This block is reached when the queue is full,
+  // the pool has not been started, or the pool has been shut down.
 }
 ```
 
-## 🛑 关闭语义
+## 🛑 Shutdown Semantics
 
-线程池支持显式关闭：
+The thread pool supports explicit shutdown:
 
 ```cpp
 pool.shutdown();
 ```
 
-`shutdown()` 的语义是：
+`shutdown()` means:
 
-- 停止接收新任务；
-- 已经进入队列的任务会继续执行；
-- 等待工作线程退出；
-- 回收线程资源；
-- 可以重复调用。
+- stop accepting new tasks;
+- continue executing tasks that have already entered the queue;
+- wait for worker threads to exit;
+- reclaim thread resources;
+- allow repeated calls.
 
-如果用户没有手动调用 `shutdown()`，`ThreadPool` 析构时也会自动执行同样的关闭流程。
+If the user does not call `shutdown()` manually, the `ThreadPool` destructor performs the same shutdown process automatically.
 
-## 📚 API 说明
+## 📚 API Reference
 
-### 配置接口
+### ⚙️ Configuration APIs
 
-所有配置接口都应在 `start()` 之前调用。
+All configuration APIs should be called before `start()`.
 
-| API | 说明 |
+| API | Description |
 | --- | --- |
-| `setMode(ThreadPoolMode mode)` | 设置线程池模式，支持 `MODE_FIXED` 和 `MODE_CACHED` |
-| `setTaskQueMaxThreshHold(std::size_t threshold)` | 设置任务队列最大容量 |
-| `setThreadSizeThreshHold(std::size_t threshold)` | 设置 cached 模式下的最大线程数 |
-| `setThreadMaxIdleTime(std::chrono::seconds idleTime)` | 设置 cached 模式下多余线程的最大空闲时间 |
-| `start(std::size_t initThreadSize = 4)` | 启动线程池并创建初始工作线程 |
+| `setMode(ThreadPoolMode mode)` | Set the pool mode, either `MODE_FIXED` or `MODE_CACHED` |
+| `setTaskQueMaxThreshold(std::size_t threshold)` | Set the maximum task queue capacity |
+| `setThreadSizeThreshold(std::size_t threshold)` | Set the maximum worker count in cached mode |
+| `setThreadMaxIdleTime(std::chrono::seconds idleTime)` | Set the maximum idle time for extra cached workers |
+| `start(std::size_t initThreadSize = 4)` | Start the pool and create initial worker threads |
 
-### 任务接口
+### 📥 Task API
 
-| API | 返回值 | 说明 |
+| API | Return Value | Description |
 | --- | --- | --- |
-| `submit(F&& func, Args&&... args)` | `std::future<T>` | 提交任意可调用对象，并自动推导返回类型 |
+| `submit(F&& func, Args&&... args)` | `std::future<T>` | Submit any callable object and automatically deduce its return type |
 
-示例：
+Examples:
 
 ```cpp
-auto f1 = pool.submit([] { return 100; });              // std::future<int>
+auto f1 = pool.submit([] { return 100; });               // std::future<int>
 auto f2 = pool.submit([] { return std::string("ok"); }); // std::future<std::string>
-auto f3 = pool.submit([] {});                           // std::future<void>
+auto f3 = pool.submit([] {});                            // std::future<void>
 ```
 
-### 状态查询接口
+### 📊 State Query APIs
 
-| API | 说明 |
+| API | Description |
 | --- | --- |
-| `currentThreadSize() const` | 获取当前线程池中的线程总数 |
-| `idleThreadSize() const` | 获取当前空闲线程数量 |
+| `currentThreadSize() const` | Get the current total number of workers in the pool |
+| `idleThreadSize() const` | Get the current number of idle workers |
 
-这些接口主要用于学习、调试和观察 cached 模式的扩容与回收。
+These APIs are mainly useful for learning, debugging, and observing scaling and reclamation behavior in cached mode.
 
-### 关闭接口
+### 🛑 Shutdown API
 
-| API | 说明 |
+| API | Description |
 | --- | --- |
-| `shutdown()` | 停止接收新任务，等待已入队任务完成，并回收线程资源 |
+| `shutdown()` | Stop accepting new tasks, wait for queued tasks to finish, and reclaim thread resources |
 
-## 🧩 核心设计
+## 🧩 Core Design
 
-### 任务包装
+### Task Wrapping
 
-用户提交的任意可调用对象都会被包装成 `std::packaged_task<ReturnType()>`：
+Any callable submitted by the user is wrapped into a `std::packaged_task<ReturnType()>`:
 
 ```cpp
 auto task = std::make_shared<std::packaged_task<ReturnType()>>(...);
 std::future<ReturnType> result = task->get_future();
 ```
 
-任务队列内部统一保存 `std::function<void()>`：
+The task queue stores all tasks as `std::function<void()>`:
 
 ```cpp
 std::queue<std::function<void()>> taskQue_;
 ```
 
-工作线程执行队列任务时，本质上是在调用：
+When a worker executes a queued task, it is essentially calling:
 
 ```cpp
 (*task)();
 ```
 
-返回值和异常都由 `std::packaged_task` 自动写入对应的 `std::future`。
+Return values and exceptions are automatically written into the associated `std::future` by `std::packaged_task`.
 
-### 工作线程流程
+### Worker Thread Flow
 
 ```text
-等待任务队列非空
+Wait until the task queue is not empty
         ↓
-取出一个任务
+Take one task
         ↓
-唤醒可能等待队列空位的提交线程
+Wake up submitting threads that may be waiting for queue space
         ↓
-执行用户任务
+Execute the user task
         ↓
-继续等待下一个任务
+Continue waiting for the next task
 ```
 
-### Cached 线程回收
+### Cached Worker Reclamation
 
-Cached 模式下，超过初始线程数的工作线程不会永久等待任务。
+In cached mode, workers beyond the initial worker count do not wait for tasks forever.
 
-当它空闲超过 `threadMaxIdleTime_`，且当前线程数仍大于初始线程数时，它会：
+When such a worker stays idle longer than `threadMaxIdleTime_`, and the current worker count is still greater than the initial worker count, it will:
 
-1. 更新线程计数；
-2. 标记自己的 `WorkerState::finished`；
-3. 退出线程函数；
-4. 在线程池后续提交或扩容时被 `reapFinishedThreadsLocked()` join 并从 `threads_` 中移除。
+1. update the worker counters;
+2. mark its own `WorkerState::finished`;
+3. exit the worker function;
+4. later be joined and removed from `threads_` by `reapFinishedThreadsLocked()` during a subsequent submit or scaling operation.
 
-## ⚠️ 注意事项
+## ⚠️ Notes
 
-1. `setMode()`、`setTaskQueMaxThreshHold()`、`setThreadSizeThreshHold()`、`setThreadMaxIdleTime()` 都需要在 `start()` 之前调用。
-2. `submit()` 可能抛出异常，建议在队列容量较小或任务可能阻塞时进行捕获。
-3. `std::future::get()` 只能调用一次，这是标准库 `future` 的语义。
-4. 如果用户任务抛出异常，需要在调用 `future.get()` 的地方捕获。
-5. `shutdown()` 会等待已入队任务执行完；如果任务内部永久阻塞，关闭流程也会等待。
-6. 当前实现没有任务取消、任务优先级和工作窃取机制。
+1. `setMode()`, `setTaskQueMaxThreshold()`, `setThreadSizeThreshold()`, and `setThreadMaxIdleTime()` must be called before `start()`.
+2. `submit()` may throw exceptions, so callers should catch them when the queue capacity is small or tasks may block.
+3. `std::future::get()` can be called only once. This is the standard library semantics of `future`.
+4. If a user task throws an exception, it should be caught at the place where `future.get()` is called.
+5. `shutdown()` waits for already queued tasks to finish. If a task blocks forever, shutdown will also wait.
+6. The current implementation does not provide task cancellation, task priorities, or work stealing.
 
-## 🗺️ 后续改进方向
+## 🗺️ Future Improvements
 
-- 增加单元测试和压力测试；
-- 增加任务取消机制；
-- 支持优先级任务队列；
-- 支持更灵活的提交超时时间配置；
-- 补充 GitHub Actions 自动构建；
-- 增加性能基准测试。
+- Add unit tests and stress tests;
+- add task cancellation;
+- support priority task queues;
+- support configurable submit timeout duration;
+- add GitHub Actions automated builds;
+- add performance benchmarks.
 
 ## 📄 License
 
-本项目基于 [MIT License](LICENSE) 开源。
+This project is open source under the [MIT License](LICENSE).

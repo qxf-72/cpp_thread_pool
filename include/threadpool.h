@@ -1,9 +1,11 @@
 #ifndef THREADPOOL_H
 #define THREADPOOL_H
 
+#include <chrono>
 #include <condition_variable>
 #include <cstddef>
 #include <functional>
+#include <future>
 #include <memory>
 #include <mutex>
 #include <queue>
@@ -14,212 +16,201 @@
 #include <utility>
 #include <vector>
 
-// Any 是一个“类型擦除”容器：
-// 线程池不知道用户任务会返回 int、string 还是自定义对象，所以用 Any 暂存任意返回值。
-// 注意：这个 Any 只能移动，不能拷贝；get() 取出结果后，结果就被消费掉了。
-class Any {
- public:
-  Any() = default;
-  ~Any() = default;
-
-  Any(const Any&) = delete;
-  Any& operator=(const Any&) = delete;
-
-  Any(Any&&) noexcept = default;
-  Any& operator=(Any&&) noexcept = default;
-
-  template <typename T,
-            typename Decayed = std::decay_t<T>,
-            typename = std::enable_if_t<!std::is_same_v<Decayed, Any>>>
-  Any(T&& data) : base_(std::make_unique<Derive<Decayed>>(std::forward<T>(data))) {}
-
-  // 按指定类型取出数据。
-  // 例如：int value = result.get().cast_<int>();
-  // 如果类型写错，会抛出异常，避免静默得到错误结果。
-  template <typename T>
-  T cast_() {
-    using Decayed = std::decay_t<T>;
-    auto* pd = dynamic_cast<Derive<Decayed>*>(base_.get());
-    if (pd == nullptr) {
-      throw std::runtime_error("Any cast failed: type does not match");
-    }
-    return std::move(pd->data_);
-  }
-
-  bool empty() const noexcept {
-    return base_ == nullptr;
-  }
-
- private:
-  class Base {
-   public:
-    virtual ~Base() = default;
-  };
-
-  template <typename T>
-  class Derive : public Base {
-   public:
-    template <typename U>
-    explicit Derive(U&& data) : data_(std::forward<U>(data)) {}
-
-    T data_;
-  };
-
-  std::unique_ptr<Base> base_;
-};
-
-class ResultState;
-
-// Result 是 submitTask() 返回给用户的“结果句柄”。
-// 用户线程调用 get()，会一直等到工作线程把任务结果写入 ResultState。
-class Result {
- public:
-  Result();
-
-  Any get();
-  bool valid() const noexcept;
-
- private:
-  friend class ThreadPool;
-
-  explicit Result(std::shared_ptr<ResultState> state, bool isValid = true);
-
-  std::shared_ptr<ResultState> state_;
-  bool isValid_;
-};
-
-// 用户任务基类。
-// 自定义任务时继承 Task，并重写 run()；run() 的返回值就是 Result::get() 拿到的值。
-class Task {
- public:
-  Task() = default;
-  virtual ~Task() = default;
-
-  virtual Any run() = 0;
-};
-
+// 线程池模式：
+// - MODE_FIXED：启动时创建固定数量线程，之后线程数不变。
+// - MODE_CACHED：任务压力变大时自动增加线程，空闲一段时间后回收多余线程。
 enum class ThreadPoolMode {
-  MODE_FIXED,
-  MODE_CACHED
+  MODE_FIXED, // 固定数量线程
+  MODE_CACHED // 任务多时动态扩容，空闲超时后回收线程
 };
 
-// 对 std::thread 做一层简单封装。
-// 这里保存真正的线程对象，析构前会 join，避免后台线程继续访问已经销毁的线程池。
-class Thread {
- public:
-  using ThreadFunc = std::function<void()>;
-
-  explicit Thread(ThreadFunc func);
-  ~Thread();
-
-  Thread(const Thread&) = delete;
-  Thread& operator=(const Thread&) = delete;
-
-  void start();
-  void join();
-
- private:
-  ThreadFunc func_;
-  std::thread thread_;
-};
-
-// 固定线程数的线程池。
-// 使用流程：
-//   ThreadPool pool;
-//   pool.start(4);
-//   Result r = pool.submitTask(task);
-//   auto value = r.get().cast_<int>();
+// ThreadPool 对外只暴露 submit() + future 接口：
+// 用户提交任意可调用对象，线程池内部把它包装成 packaged_task，
+// 再把 packaged_task 放进任务队列，最终通过 std::future<T> 返回结果。
 class ThreadPool {
- private:
-  template <typename Func, typename... BoundArgs>
-  class FunctionTask;
-
- public:
+public:
   ThreadPool();
   ~ThreadPool();
 
-  ThreadPool(const ThreadPool&) = delete;
-  ThreadPool& operator=(const ThreadPool&) = delete;
+  ThreadPool(const ThreadPool &) = delete;
+  ThreadPool &operator=(const ThreadPool &) = delete;
 
+  // 启动线程池。所有配置函数都应在 start() 之前调用。
   void start(std::size_t initThreadSize = 4);
+
+  // 设置线程池模式：固定线程数或 cached 动态扩容。
   void setMode(ThreadPoolMode poolMode);
-  void setTaskQueMaxThreshHold(std::size_t threshold);
 
-  // 更方便的任务提交接口。
-  // 用户不需要再手写 Task 子类，可以直接提交 lambda、普通函数、函数对象等。
-  //
-  // 用法示例：
-  //   auto r1 = pool.submit([] { return 42; });
-  //   int value = r1.get().cast_<int>();
-  //
-  //   auto r2 = pool.submit([](int a, int b) { return a + b; }, 10, 20);
-  //   int sum = r2.get().cast_<int>();
+  // 设置任务队列容量上限。
+  // 队列满时 submit() 最多等待 1 秒，仍无空位则抛出异常表示提交失败。
+  void setTaskQueMaxThreshold(std::size_t threshold);
+
+  // 设置 cached 模式下允许创建的最大线程数。
+  void setThreadSizeThreshold(std::size_t threshold);
+
+  // 设置 cached 模式下多余线程的最大空闲时间。
+  void setThreadMaxIdleTime(std::chrono::seconds idleTime);
+
+  // 显式关闭线程池：
+  // 1. 停止接收新任务；
+  // 2. 继续执行已经进入队列的任务；
+  // 3. 等待工作线程退出并回收资源。
+  void shutdown();
+
+  // 这两个接口主要用于观察 cached 模式是否发生扩容和回收。
+  std::size_t currentThreadSize() const;
+  std::size_t idleThreadSize() const;
+
   template <typename F, typename... Args>
-  Result submit(F&& func, Args&&... args) {
-    using TaskType = FunctionTask<std::decay_t<F>, std::decay_t<Args>...>;
+  auto submit(F &&func, Args &&...args) -> std::future<
+      std::invoke_result_t<std::decay_t<F>, std::decay_t<Args>...>> {
+    // 根据用户传入的函数和参数，推导任务真正的返回类型。
+    // 例如 submit([] { return 1; }) 的 ReturnType 就是 int。
+    using ReturnType =
+        std::invoke_result_t<std::decay_t<F>, std::decay_t<Args>...>;
 
-    return submitTask(std::make_shared<TaskType>(
-        std::forward<F>(func), std::forward<Args>(args)...));
-  }
+    // packaged_task 负责两件事：
+    // 1. 在工作线程中执行用户任务；
+    // 2. 自动把返回值或异常保存到对应的 future 中。
+    //
+    // 这里把 func 和 args 都移动/拷贝进 lambda，是为了保证 submit() 返回后，
+    // 工作线程执行任务时仍然拥有完整的函数和参数对象。
+    auto task = std::make_shared<std::packaged_task<ReturnType()>>(
+        [func = std::forward<F>(func),
+         args = std::make_tuple(
+             std::forward<Args>(args)...)]() mutable -> ReturnType {
+          if constexpr (std::is_void_v<ReturnType>) {
+            // void 返回值任务不需要 return，只需要执行完即可让 future 变为
+            // ready。
+            std::apply(std::move(func), std::move(args));
+          } else {
+            return std::apply(std::move(func), std::move(args));
+          }
+        });
 
-  // 保留原来的底层接口：如果你想自己定义 Task 子类，也仍然可以使用它。
-  Result submitTask(std::shared_ptr<Task> task);
+    // future 必须在 packaged_task 被放进队列之前取出来。
+    // 用户拿到这个 future 后，就可以调用 get() 等待任务结果。
+    std::future<ReturnType> result = task->get_future();
 
- private:
-  // submit() 会把任意可调用对象包装成 FunctionTask，
-  // 这样线程池内部仍然只需要处理统一的 Task*。
-  template <typename Func, typename... BoundArgs>
-  class FunctionTask : public Task {
-   public:
-    template <typename F, typename... Args>
-    FunctionTask(F&& func, Args&&... args)
-        : func_(std::forward<F>(func)), args_(std::forward<Args>(args)...) {}
+    {
+      std::unique_lock<std::mutex> lock(taskQueMtx_);
+      if (!isPoolRunning_) {
+        throw std::runtime_error("Thread pool is not running");
+      }
 
-    Any run() override {
-      return runImpl(std::index_sequence_for<BoundArgs...>{});
-    }
+      const auto submitDeadline =
+          std::chrono::steady_clock::now() + std::chrono::seconds(1);
 
-   private:
-    using ReturnType = std::invoke_result_t<Func&, BoundArgs&&...>;
+      // 如果队列已满且 cached 模式还能扩容，先尝试补一个工作线程，
+      // 这样当前提交不必无意义地等待已有线程慢慢腾出队列空间。
+      if (poolMode_ == ThreadPoolMode::MODE_CACHED &&
+          taskQue_.size() >= taskQueMaxThreshold_ &&
+          currentThreadSize_ < threadSizeThreshold_) {
+        reapFinishedThreadsLocked(lock);
+        if (currentThreadSize_ < threadSizeThreshold_) {
+          try {
+            addThreadLocked();
+          } catch (...) {
+            // 创建线程失败时继续走 1 秒等待逻辑，由已有线程尽量消费队列。
+          }
+        }
+      }
 
-    template <std::size_t... I>
-    Any runImpl(std::index_sequence<I...>) {
-      if constexpr (std::is_void_v<ReturnType>) {
-        std::invoke(func_, std::move(std::get<I>(args_))...);
-        return Any{};
-      } else {
-        return Any(std::invoke(func_, std::move(std::get<I>(args_))...));
+      // 提交失败策略：队列满时最多阻塞 1 秒，超时就拒绝本次任务。
+      if (!notFull_.wait_until(lock, submitDeadline, [this] {
+            return taskQue_.size() < taskQueMaxThreshold_ || !isPoolRunning_;
+          })) {
+        throw std::runtime_error("Task queue is full; submit timed out");
+      }
+
+      // wait_until可能释放了锁，必须再次判断线程池状态。
+      if (!isPoolRunning_) {
+        throw std::runtime_error("Thread pool has stopped");
+      }
+
+      // 队列里统一保存 std::function<void()>。
+      // packaged_task 本身不可拷贝，所以这里用 shared_ptr 包一层，再捕获进
+      // lambda。
+      taskQue_.emplace([task] { (*task)(); });
+
+      // cached 模式扩容条件：
+      // 1. 任务数量已经超过空闲线程数量，说明现有空闲线程不够用了；
+      // 2. 当前线程数还没达到上限。
+      if (poolMode_ == ThreadPoolMode::MODE_CACHED) {
+        reapFinishedThreadsLocked(lock);
+        if (taskQue_.size() > idleThreadSize_ &&
+            currentThreadSize_ < threadSizeThreshold_) {
+          try {
+            addThreadLocked();
+          } catch (...) {
+            // 扩容失败不影响已入队任务，已有工作线程仍会继续消费队列。
+          }
+        }
       }
     }
 
-    Func func_;
-    std::tuple<BoundArgs...> args_;
+    notEmpty_.notify_one();
+    return result;
+  }
+
+private:
+  struct WorkerState {
+    // 工作线程退出前会置为 true，线程池随后 join 并移除对应线程对象。
+    bool finished = false;
   };
 
-  // 队列里不能只放 Task，还要同时放它对应的结果状态。
-  // 这样工作线程执行完任务后，能准确唤醒提交该任务的用户线程。
-  struct TaskItem {
-    std::shared_ptr<Task> task;
-    std::shared_ptr<ResultState> result;
+  struct Worker {
+    // std::thread 不可拷贝，因此 Worker 只在 vector 中移动。
+    std::thread thread;
+    std::shared_ptr<WorkerState> state;
   };
 
-  void threadFunc();
+  // 调用这个函数时，外层必须已经持有 taskQueMtx_。
+  // 这样可以保证 currentThreadSize_ 和 threads_ 的修改是同步的。
+  void addThreadLocked();
 
-  std::vector<std::unique_ptr<Thread>> threads_;
-  std::queue<TaskItem> taskQue_;
+  // 回收已经自然退出的 cached 工作线程。
+  // 调用方传入已上锁的 unique_lock；函数会在 join 时临时解锁。
+  void reapFinishedThreadsLocked(std::unique_lock<std::mutex> &lock);
+  void threadFunc(std::shared_ptr<WorkerState> state);
 
+  std::vector<Worker> threads_;
+  std::queue<std::function<void()>> taskQue_;
+
+  // initThreadSize_：初始线程数，也是 cached 模式回收线程后的保底线程数。
   std::size_t initThreadSize_;
+
+  // 任务队列容量上限。队列满时，submit() 最多等待 1 秒。
   std::size_t taskQueMaxThreshold_;
 
-  std::mutex taskQueMtx_;
+  // cached 模式下的最大线程数。
+  std::size_t threadSizeThreshold_;
+
+  // 当前活跃线程总数，包括正在执行任务和正在空闲等待的线程。
+  std::size_t currentThreadSize_;
+
+  // 当前空闲线程数，用于判断是否需要扩容。
+  std::size_t idleThreadSize_;
+
+  // cached 模式下，超过初始数量的线程空闲多久后退出。
+  std::chrono::seconds threadMaxIdleTime_;
+
+  // 以下状态都由 taskQueMtx_ 保护。
+  mutable std::mutex taskQueMtx_;
+
+  // notFull_：队列满时 submit() 等待，工作线程取走任务后唤醒。
   std::condition_variable notFull_;
+
+  // notEmpty_：队列空时工作线程等待，submit() 放入任务后唤醒。
   std::condition_variable notEmpty_;
 
   ThreadPoolMode poolMode_;
 
-  // 受 taskQueMtx_ 保护。
-  // true 表示线程池正在接收任务；false 表示析构或停止中，工作线程应该退出。
+  // true 表示线程池正在接收任务；false 表示正在关闭或尚未启动。
   bool isPoolRunning_;
+
+  // 防止多个线程同时执行关闭流程。
+  bool isShuttingDown_;
 };
 
 #endif

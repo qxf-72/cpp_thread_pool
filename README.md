@@ -1,20 +1,15 @@
 <div align="center">
 
-# 🧵 cpp_thread_pool
+# cpp_thread_pool
 
-一个基于 C++17 实现的轻量级线程池。
+一个基于 **C++17** 的轻量级线程池，用于学习和实践 C++ 并发编程。
 
-支持提交 Lambda、普通函数及其他可调用对象，支持参数绑定、任意类型返回值、异常传递、任务队列容量限制和线程安全退出。
-
-
+支持 `std::future`、`std::packaged_task`、固定线程模式、Cached 动态扩容模式、任务异常传递、任务队列限流、1 秒提交超时拒绝、显式关闭和空闲线程自动回收。
 
 ![C++](https://img.shields.io/badge/C%2B%2B-17-blue.svg)
 ![CMake](https://img.shields.io/badge/CMake-3.10%2B-brightgreen.svg)
-![GitHub top language](https://img.shields.io/github/languages/top/qxf-72/cpp_thread_pool)
 ![Platform](https://img.shields.io/badge/Platform-Linux%20%7C%20macOS%20%7C%20Windows-lightgrey.svg)
 ![License](https://img.shields.io/badge/License-MIT-yellow.svg)
-
-⭐ 如果这个项目对你有帮助，欢迎点一个 Star！
 
 </div>
 
@@ -22,565 +17,329 @@
 
 ## 📖 项目简介
 
-`cpp_thread_pool` 是一个使用 C++17 编写的轻量级线程池。
+`cpp_thread_pool` 是一个小型 C++ 线程池项目，核心目标是展示线程池的基本组成：
 
-线程池启动后，会预先创建固定数量的工作线程。用户可以通过 `submit()` 提交 Lambda、普通函数、函数对象以及带参数的可调用对象。
+- 工作线程如何等待和消费任务；
+- 用户任务如何通过 `std::future<T>` 返回结果；
+- 异常如何从工作线程传递回提交线程；
+- 固定线程池和动态扩容线程池有什么区别；
+- 队列满、线程池关闭、空闲线程回收等边界情况如何处理。
 
-提交的任务会进入线程安全的共享任务队列，空闲工作线程负责取出并执行任务。`submit()` 会返回一个 `Result` 对象，用户可以通过 `Result::get()` 阻塞等待任务完成，并获取任务返回值。
-
-由于不同任务可能返回 `int`、`std::string` 或自定义类型，项目使用自定义 `Any` 类型对返回值进行类型擦除。
-
-本项目主要用于学习和展示线程池的核心设计与运行流程，不建议未经充分测试直接用于生产环境。
+当前实现适合学习和小型实验，不建议未经充分测试直接用于生产环境。
 
 ## ✨ 功能特性
 
-* 🧵 固定数量的工作线程
-* 📦 线程安全的任务队列
-* λ 支持提交 Lambda 表达式
-* 🔧 支持普通函数和函数对象
-* 📥 支持向任务传递任意数量的参数
-* 🎁 支持任意类型的任务返回值
-* ⏳ 支持阻塞等待任务执行结果
-* 🛡️ 支持任务异常传递
-* 🚦 支持任务队列容量限制
-* 💤 使用条件变量避免线程忙等待
-* 🔐 线程池析构时安全停止并回收线程
-* 🚫 禁止线程池对象拷贝
-
-## 🧰 环境要求
-
-* C++17 或更高版本
-* CMake 3.10 或更高版本
-* 支持 C++ 标准线程库的编译器
-
-推荐环境：
-
-```text
-GCC 9+
-Clang 10+
-MSVC 2019+
-```
+- 基于 C++17 标准库实现；
+- 支持 `MODE_FIXED` 固定线程数模式；
+- 支持 `MODE_CACHED` 动态扩容模式；
+- 支持 cached 模式下空闲线程超时回收；
+- 支持设置任务队列容量上限；
+- 队列满时，`submit()` 最多阻塞 1 秒，超时后抛出异常表示提交失败；
+- 支持提交 Lambda、普通函数、函数对象和带参数任务；
+- 自动推导任务返回类型，返回 `std::future<T>`；
+- 支持 `void` 返回值任务；
+- 用户任务抛出的异常会在 `future.get()` 时重新抛出；
+- 支持显式 `shutdown()`，析构时也会自动执行关闭流程；
+- 禁止拷贝线程池对象，避免线程资源所有权混乱。
 
 ## 📁 项目结构
 
 ```text
 cpp_thread_pool/
 ├── include/
-│   └── threadpool.h
+│   └── threadpool.h      # 线程池接口和 submit() 模板实现
 ├── src/
-│   └── threadpool.cpp
+│   └── threadpool.cpp    # 线程池生命周期、工作线程和回收逻辑
 ├── example/
-│   └── example.cpp
+│   └── example.cpp       # 使用示例
 ├── CMakeLists.txt
 ├── README.md
-├── README.zh-CN.md
 └── LICENSE
 ```
 
-## 🚀 快速开始
+## 🧰 环境要求
 
-### 1️⃣ 克隆仓库
+| 工具 | 要求 |
+| --- | --- |
+| C++ 标准 | C++17 或更高 |
+| CMake | 3.10 或更高 |
+| 编译器 | GCC / Clang / MSVC |
 
-```bash
-git clone git@github.com:qxf-72/cpp_thread_pool.git
-cd cpp_thread_pool
-```
+推荐使用 GCC 9+、Clang 10+ 或 MSVC 2019+。
 
-### 2️⃣ 编译项目
+## 🚀 编译运行
+
+生成构建目录：
 
 ```bash
 cmake -S . -B build
+```
+
+编译：
+
+```bash
 cmake --build build
 ```
 
-### 3️⃣ 运行示例
+运行示例：
 
 ```bash
-./build/thread_pool_demo
+# Windows
+./build/threadpool_demo.exe
+
+# Linux / macOS
+./build/threadpool_demo
 ```
 
-## 💡 使用示例
+## 💡 快速开始
 
-### 提交无参数 Lambda
+### 固定线程模式
 
 ```cpp
-#include <chrono>
-#include <iostream>
-#include <thread>
-
 #include "threadpool.h"
+
+#include <iostream>
 
 int main() {
   ThreadPool pool;
-  pool.start(2);
+  pool.start(4);
 
   auto result = pool.submit([] {
-    std::this_thread::sleep_for(std::chrono::seconds(1));
     return 42;
   });
 
-  int value = result.get().cast_<int>();
-
-  std::cout << "result: " << value << '\n';
-
-  return 0;
+  std::cout << result.get() << std::endl;
+  pool.shutdown();
 }
 ```
 
-### 提交带参数 Lambda
+`submit()` 会自动推导返回类型。上例中 `result` 的类型是 `std::future<int>`。
+
+### 提交带参数任务
 
 ```cpp
-#include <iostream>
+auto result = pool.submit([](int a, int b) {
+  return a + b;
+}, 10, 20);
 
-#include "threadpool.h"
-
-int main() {
-  ThreadPool pool;
-  pool.start(2);
-
-  auto result =
-      pool.submit([](int a, int b) {
-        return a + b;
-      }, 10, 20);
-
-  int value = result.get().cast_<int>();
-
-  std::cout << "result: " << value << '\n';
-
-  return 0;
-}
-```
-
-### 同时提交多个任务
-
-```cpp
-#include <chrono>
-#include <iostream>
-#include <thread>
-
-#include "threadpool.h"
-
-int main() {
-  ThreadPool pool;
-  pool.start(2);
-
-  auto r1 = pool.submit([] {
-    std::this_thread::sleep_for(std::chrono::seconds(2));
-    return 42;
-  });
-
-  auto r2 = pool.submit(
-      [](int a, int b) {
-        return a + b;
-      },
-      10, 20);
-
-  int v1 = r1.get().cast_<int>();
-  int v2 = r2.get().cast_<int>();
-
-  std::cout << "v1: " << v1 << '\n';
-  std::cout << "v2: " << v2 << '\n';
-
-  return 0;
-}
-```
-
-可能的输出：
-
-```text
-v1: 42
-v2: 30
+int value = result.get();
 ```
 
 ### 提交普通函数
 
 ```cpp
-#include <iostream>
-
-#include "threadpool.h"
-
-int multiply(int a, int b) {
-  return a * b;
+int add(int a, int b) {
+  return a + b;
 }
 
-int main() {
-  ThreadPool pool;
-  pool.start(2);
-
-  auto result = pool.submit(multiply, 6, 7);
-
-  int value = result.get().cast_<int>();
-
-  std::cout << "result: " << value << '\n';
-
-  return 0;
-}
+auto result = pool.submit(add, 3, 4);
+int value = result.get();
 ```
 
-## 🔄 工作流程
-
-```text
-创建 ThreadPool
-        │
-        ▼
-调用 start() 创建工作线程
-        │
-        ▼
-调用 submit(function, args...)
-        │
-        ▼
-绑定可调用对象及其参数
-        │
-        ▼
-创建对应的 ResultState
-        │
-        ▼
-任务进入共享任务队列
-        │
-        ▼
-条件变量唤醒工作线程
-        │
-        ▼
-工作线程执行任务
-        │
-        ▼
-返回值写入 ResultState
-        │
-        ▼
-Result::get() 获取任务结果
-```
-
-## 🧩 核心组件
-
-### 🧵 ThreadPool
-
-线程池主体，负责：
-
-* 创建和管理工作线程
-* 接收用户提交的可调用对象
-* 将任务和参数封装成无参数任务
-* 维护线程安全的任务队列
-* 阻塞和唤醒工作线程
-* 在线程池析构时安全回收线程
-
-用户通过以下接口提交任务：
-
-```cpp
-template <typename Func, typename... Args>
-Result submit(Func&& func, Args&&... args);
-```
-
-其中：
-
-* `Func` 表示可调用对象类型
-* `Args...` 表示传递给任务的参数类型
-* `Result` 表示任务执行结果
-
-### 📦 任务队列
-
-线程池内部维护一个共享任务队列。
-
-`submit()` 会将用户传入的函数和参数绑定为一个可供工作线程直接执行的任务，再将任务放入队列。
-
-当任务队列为空时，工作线程阻塞在 `notEmpty_` 条件变量上，避免持续循环占用 CPU。
-
-当任务队列达到容量上限时，提交任务的线程会阻塞在 `notFull_` 条件变量上，直到队列重新出现空位。
-
-### 🎫 Result
-
-`submit()` 返回一个 `Result` 对象：
+### 提交 void 任务
 
 ```cpp
 auto result = pool.submit([] {
-  return 100;
+  // do something
 });
+
+result.get();  // 等待任务执行完成
 ```
 
-用户可以通过：
+### 任务异常处理
 
-```cpp
-Any value = result.get();
-```
-
-等待任务执行完成。
-
-如果任务尚未完成，`get()` 会阻塞当前调用线程；任务执行完成后，`get()` 返回保存结果的 `Any` 对象。
-
-### 📬 ResultState
-
-`ResultState` 是用户线程和工作线程之间共享的结果状态。
-
-它主要保存：
-
-* 任务返回值
-* 任务是否已经完成
-* 返回值是否已经被消费
-* 任务执行期间产生的异常
-* 用于等待和唤醒的条件变量
-
-工作线程完成任务后调用：
-
-```cpp
-resultState->setValue(...);
-```
-
-用户线程通过：
-
-```cpp
-result.get();
-```
-
-等待并获取结果。
-
-### 🎁 Any
-
-`Any` 是一个自定义类型擦除容器，用于统一保存不同类型的任务返回值。
-
-保存整数：
-
-```cpp
-Any value = 100;
-int number = value.cast_<int>();
-```
-
-保存字符串：
-
-```cpp
-Any value = std::string("hello");
-std::string message = value.cast_<std::string>();
-```
-
-如果取出类型与实际类型不匹配，会抛出异常：
-
-```cpp
-Any value = 100;
-
-// 抛出 std::runtime_error
-std::string message = value.cast_<std::string>();
-```
-
-### 🔧 可调用对象封装
-
-`submit()` 使用模板和完美转发接收不同类型的任务：
-
-```cpp
-pool.submit(func, arg1, arg2, ...);
-```
-
-用户无需继承任务基类，也无需手动创建任务对象。
-
-例如：
-
-```cpp
-pool.submit([] {
-  return 42;
-});
-```
-
-以及：
-
-```cpp
-pool.submit([](int a, int b) {
-  return a + b;
-}, 10, 20);
-```
-
-线程池会在内部完成函数与参数的绑定，并在工作线程中执行。
-
-## 🔐 线程安全退出
-
-线程池析构时会执行以下流程：
-
-```text
-将 isPoolRunning_ 设置为 false
-        │
-        ▼
-唤醒所有正在等待的线程
-        │
-        ▼
-工作线程继续处理队列中的剩余任务
-        │
-        ▼
-任务队列为空后退出
-        │
-        ▼
-主线程调用 join() 等待工作线程结束
-```
-
-典型的工作线程退出条件为：
-
-```cpp
-if (!isPoolRunning_ && taskQue_.empty()) {
-  return;
-}
-```
-
-这意味着线程池停止后，已经成功提交到任务队列中的任务仍会被执行完毕。
-
-## 🛡️ 异常处理
-
-用户提交的任务可能抛出异常：
+任务中抛出的异常会被 `std::packaged_task` 保存，并在调用 `future.get()` 时重新抛出。
 
 ```cpp
 auto result = pool.submit([]() -> int {
   throw std::runtime_error("task failed");
 });
-```
 
-工作线程会捕获异常并将其保存到对应的 `ResultState` 中，避免工作线程因为用户任务异常而直接终止。
-
-当用户调用：
-
-```cpp
-result.get();
-```
-
-异常会在调用 `get()` 的线程中重新抛出：
-
-```cpp
 try {
-  int value = result.get().cast_<int>();
-} catch (const std::exception& e) {
-  std::cerr << e.what() << '\n';
+  result.get();
+} catch (const std::exception &e) {
+  std::cerr << e.what() << std::endl;
 }
 ```
 
+## ⚡ Cached 模式
+
+Cached 模式会根据任务压力动态增加线程数量。
+
+当任务队列中积压的任务数量超过空闲线程数量，并且当前线程数还没有达到上限时，线程池会尝试创建新的工作线程。
+
+当动态创建出来的线程空闲超过指定时间后，会自动退出；线程池随后会回收对应的 `std::thread` 对象，避免已结束线程句柄一直留在容器中。
+
+```cpp
+ThreadPool pool;
+pool.setMode(ThreadPoolMode::MODE_CACHED);
+pool.setThreadSizeThreshHold(8);
+pool.setThreadMaxIdleTime(std::chrono::seconds(1));
+pool.start(2);
+```
+
+配置含义：
+
+| 配置 | 含义 |
+| --- | --- |
+| `pool.start(2)` | 初始创建 2 个工作线程 |
+| `setThreadSizeThreshHold(8)` | 任务压力变大时最多扩容到 8 个线程 |
+| `setThreadMaxIdleTime(std::chrono::seconds(1))` | 多余线程空闲超过 1 秒后自动退出 |
+
+## ⏱️ 任务提交与拒绝策略
+
+`submit()` 的行为如下：
+
+1. 如果线程池还没有启动，抛出 `std::runtime_error("Thread pool is not running")`。
+2. 如果队列已满，提交线程最多等待 1 秒。
+3. 如果 1 秒内仍没有队列空位，抛出 `std::runtime_error("Task queue is full; submit timed out")`。
+4. 如果等待期间线程池被关闭，抛出 `std::runtime_error("Thread pool has stopped")`。
+
+示例：
+
+```cpp
+ThreadPool pool;
+pool.setTaskQueMaxThreshHold(1);
+pool.start(1);
+
+try {
+  auto result = pool.submit([] {
+    return 100;
+  });
+} catch (const std::exception &e) {
+  // 队列满、线程池未启动或线程池已关闭时会进入这里。
+}
+```
+
+## 🛑 关闭语义
+
+线程池支持显式关闭：
+
+```cpp
+pool.shutdown();
+```
+
+`shutdown()` 的语义是：
+
+- 停止接收新任务；
+- 已经进入队列的任务会继续执行；
+- 等待工作线程退出；
+- 回收线程资源；
+- 可以重复调用。
+
+如果用户没有手动调用 `shutdown()`，`ThreadPool` 析构时也会自动执行同样的关闭流程。
+
+## 📚 API 说明
+
+### 配置接口
+
+所有配置接口都应在 `start()` 之前调用。
+
+| API | 说明 |
+| --- | --- |
+| `setMode(ThreadPoolMode mode)` | 设置线程池模式，支持 `MODE_FIXED` 和 `MODE_CACHED` |
+| `setTaskQueMaxThreshHold(std::size_t threshold)` | 设置任务队列最大容量 |
+| `setThreadSizeThreshHold(std::size_t threshold)` | 设置 cached 模式下的最大线程数 |
+| `setThreadMaxIdleTime(std::chrono::seconds idleTime)` | 设置 cached 模式下多余线程的最大空闲时间 |
+| `start(std::size_t initThreadSize = 4)` | 启动线程池并创建初始工作线程 |
+
+### 任务接口
+
+| API | 返回值 | 说明 |
+| --- | --- | --- |
+| `submit(F&& func, Args&&... args)` | `std::future<T>` | 提交任意可调用对象，并自动推导返回类型 |
+
+示例：
+
+```cpp
+auto f1 = pool.submit([] { return 100; });              // std::future<int>
+auto f2 = pool.submit([] { return std::string("ok"); }); // std::future<std::string>
+auto f3 = pool.submit([] {});                           // std::future<void>
+```
+
+### 状态查询接口
+
+| API | 说明 |
+| --- | --- |
+| `currentThreadSize() const` | 获取当前线程池中的线程总数 |
+| `idleThreadSize() const` | 获取当前空闲线程数量 |
+
+这些接口主要用于学习、调试和观察 cached 模式的扩容与回收。
+
+### 关闭接口
+
+| API | 说明 |
+| --- | --- |
+| `shutdown()` | 停止接收新任务，等待已入队任务完成，并回收线程资源 |
+
+## 🧩 核心设计
+
+### 任务包装
+
+用户提交的任意可调用对象都会被包装成 `std::packaged_task<ReturnType()>`：
+
+```cpp
+auto task = std::make_shared<std::packaged_task<ReturnType()>>(...);
+std::future<ReturnType> result = task->get_future();
+```
+
+任务队列内部统一保存 `std::function<void()>`：
+
+```cpp
+std::queue<std::function<void()>> taskQue_;
+```
+
+工作线程执行队列任务时，本质上是在调用：
+
+```cpp
+(*task)();
+```
+
+返回值和异常都由 `std::packaged_task` 自动写入对应的 `std::future`。
+
+### 工作线程流程
+
+```text
+等待任务队列非空
+        ↓
+取出一个任务
+        ↓
+唤醒可能等待队列空位的提交线程
+        ↓
+执行用户任务
+        ↓
+继续等待下一个任务
+```
+
+### Cached 线程回收
+
+Cached 模式下，超过初始线程数的工作线程不会永久等待任务。
+
+当它空闲超过 `threadMaxIdleTime_`，且当前线程数仍大于初始线程数时，它会：
+
+1. 更新线程计数；
+2. 标记自己的 `WorkerState::finished`；
+3. 退出线程函数；
+4. 在线程池后续提交或扩容时被 `reapFinishedThreadsLocked()` join 并从 `threads_` 中移除。
+
 ## ⚠️ 注意事项
 
-### Result 只能消费一次
+1. `setMode()`、`setTaskQueMaxThreshHold()`、`setThreadSizeThreshHold()`、`setThreadMaxIdleTime()` 都需要在 `start()` 之前调用。
+2. `submit()` 可能抛出异常，建议在队列容量较小或任务可能阻塞时进行捕获。
+3. `std::future::get()` 只能调用一次，这是标准库 `future` 的语义。
+4. 如果用户任务抛出异常，需要在调用 `future.get()` 的地方捕获。
+5. `shutdown()` 会等待已入队任务执行完；如果任务内部永久阻塞，关闭流程也会等待。
+6. 当前实现没有任务取消、任务优先级和工作窃取机制。
 
-当前 `Any` 是只移动类型，`Result::get()` 会将保存的结果移动给调用者。
+## 🗺️ 后续改进方向
 
-因此，同一个 `Result` 只能成功调用一次 `get()`：
+- 增加单元测试和压力测试；
+- 增加任务取消机制；
+- 支持优先级任务队列；
+- 支持更灵活的提交超时时间配置；
+- 补充 GitHub Actions 自动构建；
+- 增加性能基准测试。
 
-```cpp
-Any first = result.get();
-Any second = result.get();  // 抛出异常
-```
-
-这种行为与 `std::future::get()` 类似。
-
-### 必须使用正确类型提取结果
-
-任务返回什么类型，就需要使用相同类型调用 `cast_()`：
-
-```cpp
-auto result = pool.submit([] {
-  return 42;
-});
-
-int value = result.get().cast_<int>();
-```
-
-下面的代码会抛出类型不匹配异常：
-
-```cpp
-std::string value = result.get().cast_<std::string>();
-```
-
-### 当前只支持固定线程模式
-
-当前版本只实现固定数量工作线程：
-
-```cpp
-ThreadPoolMode::MODE_FIXED
-```
-
-`MODE_CACHED` 动态线程模式尚未实现。
-
-### 线程池对象只能启动一次
-
-建议每个 `ThreadPool` 对象只调用一次：
-
-```cpp
-pool.start(4);
-```
-
-当前版本不支持停止后重新启动。
-
-## 🚧 当前限制
-
-当前版本暂不支持：
-
-* cached 动态线程模式
-* 空闲线程超时回收
-* 任务取消
-* 任务优先级
-* 工作窃取
-* 无锁任务队列
-* Result 多次读取
-* 线程池停止后重新启动
-* 多种任务拒绝策略
-
-## 🗺️ 后续计划
-
-* [x] 支持 Lambda 表达式提交
-* [x] 支持普通函数和函数对象
-* [x] 支持任务参数传递
-* [x] 支持任意类型返回值
-* [x] 支持任务异常传递
-* [ ] 实现 cached 动态线程模式
-* [ ] 支持空闲线程超时回收
-* [ ] 增加任务提交超时机制
-* [ ] 增加多种任务拒绝策略
-* [ ] 支持任务优先级
-* [ ] 增加线程池运行状态统计
-* [ ] 增加单元测试
-* [ ] 增加性能测试
-* [ ] 增加 GitHub Actions 自动构建
-* [ ] 完善 API 文档
-
-## 📚 学习重点
-
-通过这个项目可以学习：
-
-* `std::thread` 的创建与回收
-* `std::mutex` 和 RAII 锁管理
-* `std::condition_variable`
-* 生产者—消费者模型
-* 线程安全任务队列
-* 可变参数模板
-* 完美转发
-* 可调用对象和参数绑定
-* 智能指针和对象生命周期
-* 类型擦除
-* 异常在线程之间的传递
-* 线程池的安全启动和退出
-
-## 📊 开发状态
-
-本项目目前处于学习和持续完善阶段。
-
-当前版本适合：
-
-* 学习 C++ 并发编程
-* 理解线程池核心流程
-* 学习可变参数模板与完美转发
-* 练习条件变量和生产者—消费者模型
-* 作为 Linux C++ 后端学习项目
-
-> [!WARNING]
-> 本项目主要用于学习和技术交流，不建议未经充分测试直接用于生产环境。
-
-## 🤝 贡献
-
-欢迎提交 Issue 或 Pull Request。
-
-提交代码前建议：
-
-1. 确保代码能够正常编译。
-2. 保持现有代码风格。
-3. 为新增功能补充必要测试。
-4. 在 Pull Request 中说明修改目的和实现方式。
-
-## 📄 许可证
+## 📄 License
 
 本项目基于 [MIT License](LICENSE) 开源。
-
----
-
-<div align="center">
-
-如果这个项目对你有帮助，欢迎 ⭐ Star、🍴 Fork 或提交 Issue。
-
-</div>

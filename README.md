@@ -55,8 +55,8 @@ cpp_thread_pool/
 ├── example/
 │   └── example.cpp       # Usage example
 ├── CMakeLists.txt
-├── README.md
-├── README_EN.md
+├── README.md          # English documentation
+├── README_CN.md       # Simplified Chinese documentation
 └── LICENSE
 ```
 
@@ -70,7 +70,7 @@ cpp_thread_pool/
 
 GCC 9+, Clang 10+, or MSVC 2019+ is recommended.
 
-## 🚀 Build And Run
+## 🚀 Build and Run
 
 Generate the build directory:
 
@@ -118,7 +118,7 @@ int main() {
 
 `submit()` automatically deduces the return type. In the example above, `result` is a `std::future<int>`.
 
-### Submit A Task With Arguments
+### Submit a Task with Arguments
 
 ```cpp
 auto result = pool.submit([](int a, int b) {
@@ -128,7 +128,7 @@ auto result = pool.submit([](int a, int b) {
 int value = result.get();
 ```
 
-### Submit A Free Function
+### Submit a Free Function
 
 ```cpp
 int add(int a, int b) {
@@ -139,7 +139,7 @@ auto result = pool.submit(add, 3, 4);
 int value = result.get();
 ```
 
-### Submit A Void Task
+### Submit a Void Task
 
 ```cpp
 auto result = pool.submit([] {
@@ -189,7 +189,7 @@ Configuration meaning:
 | `setThreadSizeThreshold(8)` | Scale up to at most 8 workers when task pressure grows |
 | `setThreadMaxIdleTime(std::chrono::seconds(1))` | Extra cached workers exit after being idle for more than 1 second |
 
-## ⏱️ Task Submission And Rejection Policy
+## ⏱️ Task Submission and Rejection Policy
 
 `submit()` behaves as follows:
 
@@ -235,7 +235,7 @@ If the user does not call `shutdown()` manually, the `ThreadPool` destructor per
 
 ## 📚 API Reference
 
-### ⚙️ Configuration APIs
+### Configuration APIs
 
 All configuration APIs should be called before `start()`.
 
@@ -247,7 +247,7 @@ All configuration APIs should be called before `start()`.
 | `setThreadMaxIdleTime(std::chrono::seconds idleTime)` | Set the maximum idle time for extra cached workers |
 | `start(std::size_t initThreadSize = 4)` | Start the pool and create initial worker threads |
 
-### 📥 Task API
+### Task API
 
 | API | Return Value | Description |
 | --- | --- | --- |
@@ -261,7 +261,7 @@ auto f2 = pool.submit([] { return std::string("ok"); }); // std::future<std::str
 auto f3 = pool.submit([] {});                            // std::future<void>
 ```
 
-### 📊 State Query APIs
+### State Query APIs
 
 | API | Description |
 | --- | --- |
@@ -270,7 +270,7 @@ auto f3 = pool.submit([] {});                            // std::future<void>
 
 These APIs are mainly useful for learning, debugging, and observing scaling and reclamation behavior in cached mode.
 
-### 🛑 Shutdown API
+### Shutdown API
 
 | API | Description |
 | --- | --- |
@@ -333,7 +333,8 @@ When such a worker stays idle longer than `threadMaxIdleTime_`, and the current 
 3. `std::future::get()` can be called only once. This is the standard library semantics of `future`.
 4. If a user task throws an exception, it should be caught at the place where `future.get()` is called.
 5. `shutdown()` waits for already queued tasks to finish. If a task blocks forever, shutdown will also wait.
-6. The current implementation does not provide task cancellation, task priorities, or work stealing.
+6. `submit()` stores the callable and arguments by copy or move. Use `std::ref` or `std::cref` if a task needs reference semantics.
+7. The current implementation does not provide task cancellation, task priorities, or work stealing.
 
 ## 🗺️ Future Improvements
 

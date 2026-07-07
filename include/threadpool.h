@@ -33,8 +33,10 @@ public:
   void setMode(ThreadPoolMode poolMode);
 
   // 设置任务队列容量上限。
-  // 队列满时 submit() 最多等待 1 秒，仍无空位则抛出异常表示提交失败。
   void setTaskQueMaxThreshold(std::size_t threshold);
+
+  // 设置队列满时 submit() 等待空位的最长时间。
+  void setSubmitTimeout(std::chrono::milliseconds timeout);
 
   // 设置 cached 模式下允许创建的最大线程数。
   void setThreadSizeThreshold(std::size_t threshold);
@@ -79,7 +81,7 @@ public:
       }
 
       const auto submitDeadline =
-          std::chrono::steady_clock::now() + std::chrono::seconds(1);
+          std::chrono::steady_clock::now() + submitTimeout_;
       auto waitForQueueSlot = [&] {
         if (!notFull_.wait_until(lock, submitDeadline, [this] {
               return taskQue_.size() < taskQueMaxThreshold_ || !isPoolRunning_;
@@ -106,7 +108,7 @@ public:
           try {
             addThreadLocked();
           } catch (...) {
-            // 创建线程失败时继续走 1 秒等待逻辑，由已有线程尽量消费队列。
+            // 创建线程失败时继续走提交超时等待逻辑，由已有线程尽量消费队列。
           }
         }
       }
@@ -167,6 +169,8 @@ private:
   std::size_t initThreadSize_;
 
   std::size_t taskQueMaxThreshold_;
+
+  std::chrono::milliseconds submitTimeout_;
 
   std::size_t threadSizeThreshold_;
 

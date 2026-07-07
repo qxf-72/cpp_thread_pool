@@ -6,7 +6,7 @@
 
 一个基于 **C++17** 的轻量级线程池，用于学习和实践 C++ 并发编程。
 
-支持 `std::future`、`std::packaged_task`、固定线程模式、Cached 动态扩容模式、任务异常传递、任务队列限流、1 秒提交超时拒绝、显式关闭和空闲线程自动回收。
+支持 `std::future`、`std::packaged_task`、固定线程模式、Cached 动态扩容模式、任务异常传递、任务队列限流、可配置提交超时拒绝、显式关闭和空闲线程自动回收。
 
 ![C++](https://img.shields.io/badge/C%2B%2B-17-blue.svg)
 ![CMake](https://img.shields.io/badge/CMake-3.10%2B-brightgreen.svg)
@@ -36,7 +36,7 @@
 - 支持 `MODE_CACHED` 动态扩容模式；
 - 支持 cached 模式下空闲线程超时回收；
 - 支持设置任务队列容量上限；
-- 队列满时，`submit()` 最多阻塞 1 秒，超时后抛出异常表示提交失败；
+- 队列满时，`submit()` 最多阻塞指定时间，超时后抛出异常表示提交失败；
 - 支持提交 Lambda、普通函数、函数对象和带参数任务；
 - 自动推导任务返回类型，返回 `std::future<T>`；
 - 支持 `void` 返回值任务；
@@ -205,8 +205,8 @@ pool.start(2);
 `submit()` 的行为如下：
 
 1. 如果线程池还没有启动，抛出 `std::runtime_error("Thread pool is not running")`。
-2. 如果队列已满，提交线程最多等待 1 秒。
-3. 如果 1 秒内仍没有队列空位，抛出 `std::runtime_error("Task queue is full; submit timed out")`。
+2. 如果队列已满，提交线程最多等待配置的超时时间，默认是 1 秒。
+3. 如果超时时间内仍没有队列空位，抛出 `std::runtime_error("Task queue is full; submit timed out")`。
 4. 如果等待期间线程池被关闭，抛出 `std::runtime_error("Thread pool has stopped")`。
 
 示例：
@@ -214,6 +214,7 @@ pool.start(2);
 ```cpp
 ThreadPool pool;
 pool.setTaskQueMaxThreshold(1);
+pool.setSubmitTimeout(std::chrono::milliseconds(500));
 pool.start(1);
 
 try {
@@ -258,6 +259,7 @@ pool.shutdown();
 | --- | --- |
 | `setMode(ThreadPoolMode mode)` | 设置线程池模式，支持 `MODE_FIXED` 和 `MODE_CACHED` |
 | `setTaskQueMaxThreshold(std::size_t threshold)` | 设置任务队列最大容量 |
+| `setSubmitTimeout(std::chrono::milliseconds timeout)` | 设置队列满时 `submit()` 等待空位的最长时间 |
 | `setThreadSizeThreshold(std::size_t threshold)` | 设置 cached 模式下的最大线程数 |
 | `setThreadMaxIdleTime(std::chrono::seconds idleTime)` | 设置 cached 模式下多余线程的最大空闲时间 |
 | `start(std::size_t initThreadSize = 4)` | 启动线程池并创建初始工作线程 |
@@ -305,12 +307,12 @@ auto f3 = pool.submit([] {});                           // std::future<void>
 - `shutdown()` 不直接清空队列。已经提交的任务会继续执行，否则调用方手里的 `future` 还需要额外的取消/失败策略。
 - `shutdown()` 是外部生命周期操作，不允许在线程池任务内部调用。
 - `shutdown()` 完成后，同一个 `ThreadPool` 对象可以再次启动。
-- `submit()` 超时时间当前固定为 1 秒，是为了让拒绝行为简单、可测试；后续可以做成可配置项。
+- `submit()` 超时时间默认是 1 秒，可以通过 `setSubmitTimeout()` 调整；这个值只控制队列满时等待空位的时间。
 - 当前实现不支持任务取消、优先级队列和 work stealing。
 
 ## ⚠️ 注意事项
 
-1. `setMode()`、`setTaskQueMaxThreshold()`、`setThreadSizeThreshold()`、`setThreadMaxIdleTime()` 都需要在 `start()` 之前调用。
+1. `setMode()`、`setTaskQueMaxThreshold()`、`setSubmitTimeout()`、`setThreadSizeThreshold()`、`setThreadMaxIdleTime()` 都需要在 `start()` 之前调用。
 2. `submit()` 可能抛出异常，建议在队列容量较小或任务可能阻塞时进行捕获。
 3. `std::future::get()` 只能调用一次，这是标准库 `future` 的语义。
 4. 如果用户任务抛出异常，需要在调用 `future.get()` 的地方捕获。
@@ -324,7 +326,7 @@ auto f3 = pool.submit([] {});                           // std::future<void>
 - 扩展单元测试并增加压力测试；
 - 增加任务取消机制；
 - 支持优先级任务队列；
-- 支持更灵活的提交超时时间配置；
+- 支持每次 `submit()` 单独指定超时时间；
 - 补充 GitHub Actions 自动构建；
 - 增加性能基准测试。
 

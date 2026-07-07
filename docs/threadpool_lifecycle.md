@@ -11,7 +11,7 @@ flowchart TD
   C --> D[get future]
   D --> E{queue has space?}
   E -- yes --> F[enqueue task wrapper]
-  E -- no --> G[wait up to 1 second]
+  E -- no --> G[wait up to submit timeout]
   G --> H{space available?}
   H -- no --> I[throw submit timeout]
   H -- yes --> F

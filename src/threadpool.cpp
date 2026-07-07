@@ -7,6 +7,9 @@ namespace {
 // 默认任务队列容量。
 constexpr std::size_t TASK_MAX_THRESHOLD = 1024;
 
+// 队列满时，submit() 默认最多等待 1 秒。
+constexpr auto SUBMIT_TIMEOUT = std::chrono::milliseconds(1000);
+
 // cached 模式默认最大线程数。
 constexpr std::size_t THREAD_SIZE_THRESHOLD = 16;
 
@@ -16,8 +19,9 @@ constexpr auto THREAD_MAX_IDLE_TIME = std::chrono::seconds(60);
 
 ThreadPool::ThreadPool()
     : initThreadSize_(0), taskQueMaxThreshold_(TASK_MAX_THRESHOLD),
-      threadSizeThreshold_(THREAD_SIZE_THRESHOLD), currentThreadSize_(0),
-      idleThreadSize_(0), threadMaxIdleTime_(THREAD_MAX_IDLE_TIME),
+      submitTimeout_(SUBMIT_TIMEOUT), threadSizeThreshold_(THREAD_SIZE_THRESHOLD),
+      currentThreadSize_(0), idleThreadSize_(0),
+      threadMaxIdleTime_(THREAD_MAX_IDLE_TIME),
       poolMode_(ThreadPoolMode::MODE_FIXED), isPoolRunning_(false),
       isShuttingDown_(false) {}
 
@@ -111,6 +115,18 @@ void ThreadPool::setTaskQueMaxThreshold(std::size_t threshold) {
     throw std::runtime_error("Cannot change task queue threshold after start");
   }
   taskQueMaxThreshold_ = threshold;
+}
+
+void ThreadPool::setSubmitTimeout(std::chrono::milliseconds timeout) {
+  if (timeout.count() <= 0) {
+    throw std::invalid_argument("Submit timeout must be greater than 0");
+  }
+
+  std::lock_guard<std::mutex> lock(taskQueMtx_);
+  if (isPoolRunning_ || isShuttingDown_) {
+    throw std::runtime_error("Cannot change submit timeout after start");
+  }
+  submitTimeout_ = timeout;
 }
 
 void ThreadPool::setThreadSizeThreshold(std::size_t threshold) {

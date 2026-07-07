@@ -135,6 +135,8 @@ void testConfigurationAfterStartFails() {
 
   CHECK_THROWS_WITH(pool.setMode(ThreadPoolMode::MODE_CACHED), "after start");
   CHECK_THROWS_WITH(pool.setTaskQueMaxThreshold(8), "after start");
+  CHECK_THROWS_WITH(pool.setSubmitTimeout(std::chrono::milliseconds(100)),
+                    "after start");
   CHECK_THROWS_WITH(pool.setThreadSizeThreshold(8), "after start");
   CHECK_THROWS_WITH(pool.setThreadMaxIdleTime(std::chrono::seconds(2)),
                     "after start");
@@ -285,6 +287,58 @@ void testQueueFullSubmitTimesOut() {
   }
 }
 
+void testCustomSubmitTimeout() {
+  // 验证提交超时时间可以配置，而不是只能使用默认的 1 秒。
+  ThreadPool pool;
+  CHECK_THROWS_WITH(pool.setSubmitTimeout(std::chrono::milliseconds(0)),
+                    "greater than 0");
+  pool.setTaskQueMaxThreshold(1);
+  pool.setSubmitTimeout(std::chrono::milliseconds(200));
+  pool.start(1);
+
+  std::promise<void> workerStarted;
+  auto workerStartedFuture = workerStarted.get_future();
+
+  std::promise<void> releaseWorker;
+  auto releaseWorkerFuture = releaseWorker.get_future().share();
+  bool workerReleased = false;
+
+  auto release = [&] {
+    if (!workerReleased) {
+      releaseWorker.set_value();
+      workerReleased = true;
+    }
+  };
+
+  auto blocker = pool.submit([&workerStarted, releaseWorkerFuture] {
+    workerStarted.set_value();
+    releaseWorkerFuture.wait();
+  });
+
+  try {
+    CHECK(workerStartedFuture.wait_for(std::chrono::seconds(1)) ==
+          std::future_status::ready);
+
+    auto queued = pool.submit([] { return 13; });
+
+    const auto begin = Clock::now();
+    CHECK_THROWS_WITH(pool.submit([] { return 14; }), "timed out");
+    const auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
+        Clock::now() - begin);
+
+    CHECK(elapsed >= std::chrono::milliseconds(150));
+    CHECK(elapsed < std::chrono::milliseconds(1200));
+
+    release();
+    blocker.get();
+    CHECK(queued.get() == 13);
+    pool.shutdown();
+  } catch (...) {
+    release();
+    throw;
+  }
+}
+
 void testCachedModeScalesAndReclaimsIdleWorkers() {
   // 验证 cached 模式在任务积压时会扩容，并在空闲超时后回收到初始线程数。
   ThreadPool pool;
@@ -355,6 +409,7 @@ const TestCase TESTS[] = {
     {"destructor shuts down from external thread",
      testDestructorShutsDownFromExternalThread},
     {"queue full submit times out", testQueueFullSubmitTimesOut},
+    {"custom submit timeout is honored", testCustomSubmitTimeout},
     {"cached mode scales and reclaims idle workers",
      testCachedModeScalesAndReclaimsIdleWorkers},
 };

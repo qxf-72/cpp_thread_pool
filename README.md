@@ -6,7 +6,7 @@
 
 A lightweight **C++17** thread pool for learning and practicing C++ concurrent programming.
 
-It supports `std::future`, `std::packaged_task`, fixed-size workers, cached dynamic scaling, task exception propagation, bounded task queues, 1-second submit timeout rejection, explicit shutdown, and automatic reclamation of idle cached workers.
+It supports `std::future`, `std::packaged_task`, fixed-size workers, cached dynamic scaling, task exception propagation, bounded task queues, configurable submit timeout rejection, explicit shutdown, and automatic reclamation of idle cached workers.
 
 ![C++](https://img.shields.io/badge/C%2B%2B-17-blue.svg)
 ![CMake](https://img.shields.io/badge/CMake-3.10%2B-brightgreen.svg)
@@ -36,7 +36,7 @@ The current implementation is suitable for learning and small experiments. It is
 - supports `MODE_CACHED` dynamic scaling mode;
 - supports idle worker timeout and reclamation in cached mode;
 - supports configuring the maximum task queue capacity;
-- when the queue is full, `submit()` blocks for at most 1 second and throws an exception if the task cannot be submitted;
+- when the queue is full, `submit()` blocks for the configured timeout and throws an exception if the task cannot be submitted;
 - supports submitting lambdas, free functions, function objects, and callables with arguments;
 - automatically deduces task return types and returns `std::future<T>`;
 - supports tasks with `void` return type;
@@ -205,8 +205,8 @@ Configuration meaning:
 `submit()` behaves as follows:
 
 1. If the pool has not been started, it throws `std::runtime_error("Thread pool is not running")`.
-2. If the queue is full, the submitting thread waits for at most 1 second.
-3. If no queue slot becomes available within 1 second, it throws `std::runtime_error("Task queue is full; submit timed out")`.
+2. If the queue is full, the submitting thread waits for the configured timeout, which defaults to 1 second.
+3. If no queue slot becomes available before the timeout expires, it throws `std::runtime_error("Task queue is full; submit timed out")`.
 4. If the pool is shut down while the submitting thread is waiting, it throws `std::runtime_error("Thread pool has stopped")`.
 
 Example:
@@ -214,6 +214,7 @@ Example:
 ```cpp
 ThreadPool pool;
 pool.setTaskQueMaxThreshold(1);
+pool.setSubmitTimeout(std::chrono::milliseconds(500));
 pool.start(1);
 
 try {
@@ -259,6 +260,7 @@ All configuration APIs should be called before `start()`.
 | --- | --- |
 | `setMode(ThreadPoolMode mode)` | Set the pool mode, either `MODE_FIXED` or `MODE_CACHED` |
 | `setTaskQueMaxThreshold(std::size_t threshold)` | Set the maximum task queue capacity |
+| `setSubmitTimeout(std::chrono::milliseconds timeout)` | Set how long `submit()` waits for a free queue slot when the queue is full |
 | `setThreadSizeThreshold(std::size_t threshold)` | Set the maximum worker count in cached mode |
 | `setThreadMaxIdleTime(std::chrono::seconds idleTime)` | Set the maximum idle time for extra cached workers |
 | `start(std::size_t initThreadSize = 4)` | Start the pool and create initial worker threads |
@@ -306,12 +308,12 @@ Some details are intentionally kept out of the source comments and documented se
 - `shutdown()` does not clear queued tasks directly. Already submitted tasks are allowed to finish; otherwise callers holding `future` objects would need a separate cancellation policy.
 - `shutdown()` is an external lifecycle operation. A task running inside the pool is not allowed to call it.
 - After `shutdown()` finishes, the same `ThreadPool` object can be started again.
-- The submit timeout is fixed at 1 second for now. It keeps the rejection behavior simple and easy to test, but it should probably become configurable later.
+- The submit timeout defaults to 1 second and can be changed with `setSubmitTimeout()`. It only controls how long `submit()` waits for a free queue slot when the queue is full.
 - The current implementation does not support task cancellation, priority queues, or work stealing.
 
 ## ⚠️ Notes
 
-1. `setMode()`, `setTaskQueMaxThreshold()`, `setThreadSizeThreshold()`, and `setThreadMaxIdleTime()` must be called before `start()`.
+1. `setMode()`, `setTaskQueMaxThreshold()`, `setSubmitTimeout()`, `setThreadSizeThreshold()`, and `setThreadMaxIdleTime()` must be called before `start()`.
 2. `submit()` may throw exceptions, so callers should catch them when the queue capacity is small or tasks may block.
 3. `std::future::get()` can be called only once. This is the standard library semantics of `future`.
 4. If a user task throws an exception, it should be caught at the place where `future.get()` is called.
@@ -325,7 +327,7 @@ Some details are intentionally kept out of the source comments and documented se
 - Expand unit tests and add stress tests;
 - add task cancellation;
 - support priority task queues;
-- support configurable submit timeout duration;
+- support per-submit timeout duration;
 - add GitHub Actions automated builds;
 - add performance benchmarks.
 

@@ -170,6 +170,70 @@ void testShutdownRejectsNewTasksAndWaitsQueuedTasks() {
   CHECK_THROWS_WITH(pool.submit([] { return 3; }), "not running");
 }
 
+void testShutdownFromWorkerTaskFails() {
+  // shutdown() 需要由线程池外部调用；任务内部调用会破坏对象生命周期。
+  ThreadPool pool;
+  pool.start(1);
+
+  auto result = pool.submit([&pool] { pool.shutdown(); });
+
+  CHECK_THROWS_WITH(result.get(), "worker thread");
+
+  // 拒绝 worker 内部 shutdown 后，线程池应仍处于可用状态。
+  auto stillWorks = pool.submit([] { return 9; });
+  CHECK(stillWorks.get() == 9);
+
+  pool.shutdown();
+}
+
+void testCanRestartAfterShutdown() {
+  // shutdown() 会完整回收线程；之后允许同一个对象再次 start()。
+  ThreadPool pool;
+  pool.start(1);
+
+  auto first = pool.submit([] { return 1; });
+  CHECK(first.get() == 1);
+  pool.shutdown();
+  CHECK(pool.currentThreadSize() == 0);
+  CHECK(pool.idleThreadSize() == 0);
+
+  pool.start(2);
+  auto second = pool.submit([] { return 2; });
+  CHECK(second.get() == 2);
+  CHECK(pool.currentThreadSize() == 2);
+
+  pool.shutdown();
+}
+
+void testCachedModeRejectsInitialSizeAboveThreshold() {
+  // cached 模式下，初始线程数不能超过最大线程数配置。
+  ThreadPool pool;
+  pool.setMode(ThreadPoolMode::MODE_CACHED);
+  pool.setThreadSizeThreshold(1);
+
+  CHECK_THROWS_WITH(pool.start(2), "threshold");
+  CHECK(pool.currentThreadSize() == 0);
+
+  // 启动失败后对象应回到可配置、可重新启动的干净状态。
+  pool.setThreadSizeThreshold(2);
+  pool.start(1);
+  auto result = pool.submit([] { return 6; });
+  CHECK(result.get() == 6);
+  pool.shutdown();
+}
+
+void testDestructorShutsDownFromExternalThread() {
+  // 外部线程销毁 ThreadPool 时，析构函数应自动走关闭流程。
+  std::future<int> result;
+
+  {
+    ThreadPool pool;
+    pool.start(1);
+    result = pool.submit([] { return 11; });
+    CHECK(result.get() == 11);
+  }
+}
+
 void testQueueFullSubmitTimesOut() {
   // 用一个阻塞任务占住唯一工作线程，再填满队列，验证第三次提交会超时失败。
   ThreadPool pool;
@@ -284,6 +348,12 @@ const TestCase TESTS[] = {
     {"configuration after start fails", testConfigurationAfterStartFails},
     {"shutdown rejects new tasks and waits queued tasks",
      testShutdownRejectsNewTasksAndWaitsQueuedTasks},
+    {"shutdown from worker task fails", testShutdownFromWorkerTaskFails},
+    {"can restart after shutdown", testCanRestartAfterShutdown},
+    {"cached mode rejects initial size above threshold",
+     testCachedModeRejectsInitialSizeAboveThreshold},
+    {"destructor shuts down from external thread",
+     testDestructorShutsDownFromExternalThread},
     {"queue full submit times out", testQueueFullSubmitTimesOut},
     {"cached mode scales and reclaims idle workers",
      testCachedModeScalesAndReclaimsIdleWorkers},

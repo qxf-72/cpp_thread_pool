@@ -16,15 +16,12 @@
 #include <utility>
 #include <vector>
 
-enum class ThreadPoolMode {
-  MODE_FIXED,
-  MODE_CACHED
-};
+enum class ThreadPoolMode { MODE_FIXED, MODE_CACHED };
 
 class ThreadPool {
 public:
   ThreadPool();
-  ~ThreadPool();
+  ~ThreadPool() noexcept;
 
   ThreadPool(const ThreadPool &) = delete;
   ThreadPool &operator=(const ThreadPool &) = delete;
@@ -83,11 +80,28 @@ public:
 
       const auto submitDeadline =
           std::chrono::steady_clock::now() + std::chrono::seconds(1);
+      auto waitForQueueSlot = [&] {
+        if (!notFull_.wait_until(lock, submitDeadline, [this] {
+              return taskQue_.size() < taskQueMaxThreshold_ || !isPoolRunning_;
+            })) {
+          throw std::runtime_error("Task queue is full; submit timed out");
+        }
+
+        // wait_until 会释放锁；被 shutdown() 唤醒后不能继续入队。
+        if (!isPoolRunning_ || isShuttingDown_) {
+          throw std::runtime_error(
+              "Thread pool has stopped or is shutting down");
+        }
+      };
 
       if (poolMode_ == ThreadPoolMode::MODE_CACHED &&
           taskQue_.size() >= taskQueMaxThreshold_ &&
           currentThreadSize_ < threadSizeThreshold_) {
         reapFinishedThreadsLocked(lock);
+        if (!isPoolRunning_ || isShuttingDown_) {
+          throw std::runtime_error(
+              "Thread pool has stopped or is shutting down");
+        }
         if (currentThreadSize_ < threadSizeThreshold_) {
           try {
             addThreadLocked();
@@ -97,21 +111,17 @@ public:
         }
       }
 
-      if (!notFull_.wait_until(lock, submitDeadline, [this] {
-            return taskQue_.size() < taskQueMaxThreshold_ || !isPoolRunning_;
-          })) {
-        throw std::runtime_error("Task queue is full; submit timed out");
-      }
+      waitForQueueSlot();
 
-      // wait_until 会释放锁；被 shutdown() 唤醒后不能继续入队。
-      if (!isPoolRunning_) {
-        throw std::runtime_error("Thread pool has stopped");
-      }
+      // 在入队前回收线程。避免：任务已经入队，函数却抛异常。
+      reapFinishedThreadsLocked(lock);
+      // reapFinishedThreadsLocked() 可能在 join 时临时解锁；重新确认容量，
+      // 避免其他提交线程趁机填满队列后仍继续入队。
+      waitForQueueSlot();
 
       taskQue_.emplace([task] { (*task)(); });
 
       if (poolMode_ == ThreadPoolMode::MODE_CACHED) {
-        reapFinishedThreadsLocked(lock);
         if (taskQue_.size() > idleThreadSize_ &&
             currentThreadSize_ < threadSizeThreshold_) {
           try {
@@ -141,9 +151,14 @@ private:
   // 调用方必须持有 taskQueMtx_。
   void addThreadLocked();
 
+  // 析构函数和 public shutdown() 共用的关闭实现。
+  void shutdownImpl(bool rejectWorkerThread);
+
   // 调用方必须持有 taskQueMtx_；join 前会临时解锁。
   void reapFinishedThreadsLocked(std::unique_lock<std::mutex> &lock);
   void threadFunc(std::shared_ptr<WorkerState> state);
+
+  static thread_local const ThreadPool *currentWorkerPool_;
 
   std::vector<Worker> threads_;
   std::queue<std::function<void()>> taskQue_;

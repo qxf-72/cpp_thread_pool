@@ -240,9 +240,14 @@ pool.shutdown();
 - continue executing tasks that have already entered the queue;
 - wait for worker threads to exit;
 - reclaim thread resources;
-- allow repeated calls.
+- allow repeated calls;
+- allow the same `ThreadPool` object to be started again after shutdown completes.
 
 If the user does not call `shutdown()` manually, the `ThreadPool` destructor performs the same shutdown process automatically.
+
+`shutdown()` must be called from outside the worker tasks. Calling it from a task running inside the pool is rejected because it would make worker lifetime and object ownership ambiguous.
+
+The `ThreadPool` object itself should also be owned and destroyed outside its worker tasks.
 
 ## 📚 API Reference
 
@@ -299,6 +304,8 @@ Some details are intentionally kept out of the source comments and documented se
 - An earlier experimental design considered custom `Any` / `Result`-style wrappers. This version uses `std::future` and `std::packaged_task` instead, so return values and exceptions follow standard library semantics.
 - Cached workers cannot only decrement a counter when they exit. Their `std::thread` objects still have to be joined and removed from the worker list.
 - `shutdown()` does not clear queued tasks directly. Already submitted tasks are allowed to finish; otherwise callers holding `future` objects would need a separate cancellation policy.
+- `shutdown()` is an external lifecycle operation. A task running inside the pool is not allowed to call it.
+- After `shutdown()` finishes, the same `ThreadPool` object can be started again.
 - The submit timeout is fixed at 1 second for now. It keeps the rejection behavior simple and easy to test, but it should probably become configurable later.
 - The current implementation does not support task cancellation, priority queues, or work stealing.
 
@@ -309,8 +316,9 @@ Some details are intentionally kept out of the source comments and documented se
 3. `std::future::get()` can be called only once. This is the standard library semantics of `future`.
 4. If a user task throws an exception, it should be caught at the place where `future.get()` is called.
 5. `shutdown()` waits for already queued tasks to finish. If a task blocks forever, shutdown will also wait.
-6. `submit()` stores the callable and arguments by copy or move. Use `std::ref` or `std::cref` if a task needs reference semantics.
-7. The current implementation does not provide task cancellation, task priorities, or work stealing.
+6. Do not call `shutdown()` from inside a submitted task, and do not destroy the pool object from one of its worker tasks.
+7. `submit()` stores the callable and arguments by copy or move. Use `std::ref` or `std::cref` if a task needs reference semantics.
+8. The current implementation does not provide task cancellation, task priorities, or work stealing.
 
 ## 🗺️ Future Improvements
 

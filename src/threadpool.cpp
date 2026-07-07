@@ -1,6 +1,7 @@
 #include "threadpool.h"
 
 #include <algorithm>
+#include <exception>
 
 namespace {
 // 默认任务队列容量。
@@ -20,11 +21,30 @@ ThreadPool::ThreadPool()
       poolMode_(ThreadPoolMode::MODE_FIXED), isPoolRunning_(false),
       isShuttingDown_(false) {}
 
-ThreadPool::~ThreadPool() {
-  shutdown();
+thread_local const ThreadPool *ThreadPool::currentWorkerPool_ = nullptr;
+
+ThreadPool::~ThreadPool() noexcept {
+  if (currentWorkerPool_ == this) {
+    std::terminate();
+  }
+
+  try {
+    shutdownImpl(false);
+  } catch (...) {
+    std::terminate();
+  }
 }
 
-void ThreadPool::shutdown() {
+void ThreadPool::shutdown() { shutdownImpl(true); }
+
+void ThreadPool::shutdownImpl(bool rejectWorkerThread) {
+  if (currentWorkerPool_ == this) {
+    if (rejectWorkerThread) {
+      throw std::runtime_error("Cannot call shutdown from worker thread");
+    }
+    std::terminate();
+  }
+
   std::vector<Worker> workers;
 
   {
@@ -32,6 +52,7 @@ void ThreadPool::shutdown() {
 
     // shutdown() 允许重复调用；并发关闭时只让一个线程执行回收。
     if (isShuttingDown_) {
+      // 保证shutdown()语义：只要返回，线程池就已经关闭。
       notEmpty_.wait(lock, [this] { return !isShuttingDown_; });
       return;
     }
@@ -51,21 +72,15 @@ void ThreadPool::shutdown() {
 
   {
     std::lock_guard<std::mutex> lock(taskQueMtx_);
-    // join 不能在持锁状态下做，否则 worker 退出时可能反向等待同一把锁。
     workers.swap(threads_);
   }
 
-  const auto currentThreadId = std::this_thread::get_id();
+  // join 不能在持锁状态下做，否则 worker 退出时可能反向等待同一把锁。
   for (auto &worker : workers) {
     if (!worker.thread.joinable()) {
       continue;
     }
-    if (worker.thread.get_id() == currentThreadId) {
-      // 防御性处理：不能 join 当前线程。
-      worker.thread.detach();
-    } else {
-      worker.thread.join();
-    }
+    worker.thread.join();
   }
 
   {
@@ -137,34 +152,71 @@ void ThreadPool::start(std::size_t initThreadSize) {
     throw std::invalid_argument("Initial thread size must be greater than 0");
   }
 
-  std::lock_guard<std::mutex> lock(taskQueMtx_);
+  std::vector<Worker> workersToJoin;
+  std::unique_lock<std::mutex> lock(taskQueMtx_);
   if (isPoolRunning_ || isShuttingDown_) {
     throw std::runtime_error("Thread pool has already been started");
   }
 
+  const std::size_t previousInitThreadSize = initThreadSize_;
   initThreadSize_ = initThreadSize;
 
-  // 保证 cached 模式下 currentThreadSize_ 不会一启动就超过上限。
-  threadSizeThreshold_ = std::max(threadSizeThreshold_, initThreadSize_);
-  isPoolRunning_ = true;
+  try {
+    if (poolMode_ == ThreadPoolMode::MODE_CACHED &&
+        initThreadSize > threadSizeThreshold_) {
+      throw std::invalid_argument(
+          "Initial thread size cannot exceed thread size threshold");
+    }
 
-  threads_.reserve(threadSizeThreshold_);
-  for (std::size_t i = 0; i < initThreadSize_; ++i) {
-    addThreadLocked();
+    threads_.reserve(std::max(threadSizeThreshold_, initThreadSize_));
+    for (std::size_t i = 0; i < initThreadSize_; ++i) {
+      addThreadLocked();
+    }
+
+    // 所有 worker 都创建成功后再进入 running 状态。
+    isPoolRunning_ = true;
+  } catch (...) {
+    isPoolRunning_ = false;
+    isShuttingDown_ = true;
+    initThreadSize_ = previousInitThreadSize;
+    workersToJoin.swap(threads_);
+
+    lock.unlock();
+    notEmpty_.notify_all();
+
+    for (auto &worker : workersToJoin) {
+      if (worker.thread.joinable()) {
+        worker.thread.join();
+      }
+    }
+
+    lock.lock();
+    currentThreadSize_ = 0;
+    idleThreadSize_ = 0;
+    isShuttingDown_ = false;
+    lock.unlock();
+
+    notEmpty_.notify_all();
+    throw;
   }
 }
 
 void ThreadPool::addThreadLocked() {
-  // 调用方持有 taskQueMtx_；失败时必须回滚 threads_ 和 currentThreadSize_。
+  // 调用方持有 taskQueMtx_；失败时必须回滚已修改的状态。
   threads_.emplace_back();
-  auto &worker = threads_.back();
-  worker.state = std::make_shared<WorkerState>();
-  ++currentThreadSize_;
+  bool counted = false;
   try {
+    auto &worker = threads_.back();
+    worker.state = std::make_shared<WorkerState>();
+    ++currentThreadSize_;
+    counted = true;
+
     auto state = worker.state;
     worker.thread = std::thread([this, state] { threadFunc(state); });
   } catch (...) {
-    --currentThreadSize_;
+    if (counted) {
+      --currentThreadSize_;
+    }
     threads_.pop_back();
     throw;
   }
@@ -187,17 +239,23 @@ void ThreadPool::reapFinishedThreadsLocked(std::unique_lock<std::mutex> &lock) {
     // join 可能阻塞，必须放到锁外执行。
     lock.unlock();
     if (thread.joinable()) {
-      if (thread.get_id() == std::this_thread::get_id()) {
-        thread.detach();
-      } else {
-        thread.join();
-      }
+      thread.join();
     }
     lock.lock();
   }
 }
 
 void ThreadPool::threadFunc(std::shared_ptr<WorkerState> state) {
+  struct WorkerPoolGuard {
+    const ThreadPool *&slot;
+    const ThreadPool *previous;
+
+    ~WorkerPoolGuard() { slot = previous; }
+  };
+
+  WorkerPoolGuard guard{currentWorkerPool_, currentWorkerPool_};
+  currentWorkerPool_ = this;
+
   // 只能在持有 taskQueMtx_ 时调用。
   auto finishThread = [this, state] {
     if (currentThreadSize_ > 0) {

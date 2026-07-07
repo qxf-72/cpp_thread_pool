@@ -46,7 +46,9 @@ flowchart TD
 
 ```mermaid
 flowchart TD
-  A[shutdown called] --> B[lock taskQueMtx]
+  A[shutdown called] --> W{called from worker task?}
+  W -- yes --> X[throw runtime_error]
+  W -- no --> B[lock taskQueMtx]
   B --> C{already shutting down?}
   C -- yes --> D[wait until shutdown finishes]
   C -- no --> E[set isPoolRunning false]
@@ -63,5 +65,7 @@ flowchart TD
 
 - `submit()` 在等待队列空位时会释放锁，所以醒来后必须重新检查线程池是否仍在运行。
 - `shutdown()` 不清空任务队列；已经入队的任务会继续执行。
+- `shutdown()` 不允许从线程池任务内部调用。
+- `shutdown()` 完成后，同一个线程池对象可以再次 `start()`。
 - `join` 不能在持有 `taskQueMtx_` 的状态下执行。
 - cached worker 退出时只标记自己结束，真正的 `std::thread` 回收由线程池后续完成。

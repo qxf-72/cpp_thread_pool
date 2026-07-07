@@ -11,6 +11,7 @@ It supports `std::future`, `std::packaged_task`, fixed-size workers, cached dyna
 ![C++](https://img.shields.io/badge/C%2B%2B-17-blue.svg)
 ![CMake](https://img.shields.io/badge/CMake-3.10%2B-brightgreen.svg)
 ![Platform](https://img.shields.io/badge/Platform-Linux%20%7C%20macOS%20%7C%20Windows-lightgrey.svg)
+[![CI](https://github.com/qxf-72/cpp_thread_pool/actions/workflows/ci.yml/badge.svg)](https://github.com/qxf-72/cpp_thread_pool/actions/workflows/ci.yml)
 ![License](https://img.shields.io/badge/License-MIT-yellow.svg)
 
 </div>
@@ -328,7 +329,7 @@ Some details are intentionally kept out of the source comments and documented se
 - add task cancellation;
 - support priority task queues;
 - support per-submit timeout duration;
-- add GitHub Actions automated builds;
+- add sanitizer builds for memory and thread checks;
 - add performance benchmarks.
 
 ## 📄 License

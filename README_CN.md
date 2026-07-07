@@ -11,6 +11,7 @@
 ![C++](https://img.shields.io/badge/C%2B%2B-17-blue.svg)
 ![CMake](https://img.shields.io/badge/CMake-3.10%2B-brightgreen.svg)
 ![Platform](https://img.shields.io/badge/Platform-Linux%20%7C%20macOS%20%7C%20Windows-lightgrey.svg)
+[![CI](https://github.com/qxf-72/cpp_thread_pool/actions/workflows/ci.yml/badge.svg)](https://github.com/qxf-72/cpp_thread_pool/actions/workflows/ci.yml)
 ![License](https://img.shields.io/badge/License-MIT-yellow.svg)
 
 </div>
@@ -327,7 +328,7 @@ auto f3 = pool.submit([] {});                           // std::future<void>
 - 增加任务取消机制；
 - 支持优先级任务队列；
 - 支持每次 `submit()` 单独指定超时时间；
-- 补充 GitHub Actions 自动构建；
+- 增加 sanitizer 构建，辅助检查内存和线程问题；
 - 增加性能基准测试。
 
 ## 📄 License

@@ -52,10 +52,13 @@ cpp_thread_pool/
 │   └── threadpool.h      # 线程池接口和 submit() 模板实现
 ├── src/
 │   └── threadpool.cpp    # 线程池生命周期、工作线程和回收逻辑
-├── example/
+├── examples/
 │   └── example.cpp       # 使用示例
 ├── tests/
 │   └── threadpool_tests.cpp # 轻量级行为测试
+├── docs/
+│   ├── design.md         # 设计取舍和踩坑记录
+│   └── threadpool_lifecycle.md # 提交、执行和关闭流程
 ├── CMakeLists.txt
 ├── README.md          # 英文说明文档
 ├── README_CN.md       # 简体中文说明文档
@@ -283,55 +286,20 @@ auto f3 = pool.submit([] {});                           // std::future<void>
 | --- | --- |
 | `shutdown()` | 停止接收新任务，等待已入队任务完成，并回收线程资源 |
 
-## 🧩 核心设计
+## 🧩 实现笔记
 
-### 任务包装
+一些细节不再堆在源码注释里，而是单独放到文档中：
 
-用户提交的任意可调用对象都会被包装成 `std::packaged_task<ReturnType()>`：
+- [Design Notes](docs/design.md) 记录主要设计取舍，包括为什么使用 `std::future` / `std::packaged_task`、为什么 cached 线程退出后还要 join，以及为什么 `shutdown()` 不直接清空任务队列。
+- [Thread Pool Lifecycle](docs/threadpool_lifecycle.md) 用 Mermaid 图展示 `submit -> 入队 -> worker -> packaged_task -> future ready -> shutdown -> join` 的完整流程。
 
-```cpp
-auto task = std::make_shared<std::packaged_task<ReturnType()>>(...);
-std::future<ReturnType> result = task->get_future();
-```
+## 📝 学习笔记
 
-任务队列内部统一保存 `std::function<void()>`：
-
-```cpp
-std::queue<std::function<void()>> taskQue_;
-```
-
-工作线程执行队列任务时，本质上是在调用：
-
-```cpp
-(*task)();
-```
-
-返回值和异常都由 `std::packaged_task` 自动写入对应的 `std::future`。
-
-### 工作线程流程
-
-```text
-等待任务队列非空
-        ↓
-取出一个任务
-        ↓
-唤醒可能等待队列空位的提交线程
-        ↓
-执行用户任务
-        ↓
-继续等待下一个任务
-```
-
-### Cached 线程回收
-
-Cached 模式下，超过初始线程数的工作线程不会永久等待任务。
-
-当它空闲超过 `threadMaxIdleTime_`，且当前线程数仍大于初始线程数时，它会：
-
-1. 更新线程计数；
-2. 标记自己的 `WorkerState::finished`；
-3. 退出线程函数；
-4. 在线程池后续提交或扩容时被 `reapFinishedThreadsLocked()` join 并从 `threads_` 中移除。
+- 早期实验版考虑过自定义 `Any` / `Result` 一类的结果包装。当前版本改用 `std::future` 和 `std::packaged_task`，让返回值和异常遵循标准库语义。
+- cached 线程退出时不能只减少计数；对应的 `std::thread` 对象仍然需要被 join，并从线程容器中移除。
+- `shutdown()` 不直接清空队列。已经提交的任务会继续执行，否则调用方手里的 `future` 还需要额外的取消/失败策略。
+- `submit()` 超时时间当前固定为 1 秒，是为了让拒绝行为简单、可测试；后续可以做成可配置项。
+- 当前实现不支持任务取消、优先级队列和 work stealing。
 
 ## ⚠️ 注意事项
 

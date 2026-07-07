@@ -10,9 +10,9 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 # 在不同平台上正确找到 pthread、Windows 线程库等底层线程支持。
 find_package(Threads REQUIRED)
 
-# 示例程序：把线程池实现和 example/main 一起编译成可运行 demo。
+# 示例程序：把线程池实现和 examples/main 一起编译成可运行 demo。
 add_executable(threadpool_demo
-    example/example.cpp
+    examples/example.cpp
     src/threadpool.cpp
 )
 

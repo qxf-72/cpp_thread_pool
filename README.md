@@ -1,6 +1,6 @@
 <div align="center">
 
-# cpp_thread_pool
+# 🧵 cpp_thread_pool
 
 [English](README.md) | [简体中文](README_CN.md)
 
@@ -52,10 +52,13 @@ cpp_thread_pool/
 │   └── threadpool.h      # Thread pool interface and submit() template implementation
 ├── src/
 │   └── threadpool.cpp    # Lifecycle, worker thread, and reclamation logic
-├── example/
+├── examples/
 │   └── example.cpp       # Usage example
 ├── tests/
 │   └── threadpool_tests.cpp # Lightweight behavior tests
+├── docs/
+│   ├── design.md         # Design notes and trade-offs
+│   └── threadpool_lifecycle.md # Submit/worker/shutdown flow
 ├── CMakeLists.txt
 ├── README.md          # English documentation
 ├── README_CN.md       # Simplified Chinese documentation
@@ -284,55 +287,20 @@ These APIs are mainly useful for learning, debugging, and observing scaling and 
 | --- | --- |
 | `shutdown()` | Stop accepting new tasks, wait for queued tasks to finish, and reclaim thread resources |
 
-## 🧩 Core Design
+## 🧩 Implementation Notes
 
-### Task Wrapping
+Some details are intentionally kept out of the source comments and documented separately:
 
-Any callable submitted by the user is wrapped into a `std::packaged_task<ReturnType()>`:
+- [Design Notes](docs/design.md) explains the main trade-offs, including why this version uses `std::future` / `std::packaged_task`, why cached workers must be joined after exit, and why `shutdown()` does not simply clear the task queue.
+- [Thread Pool Lifecycle](docs/threadpool_lifecycle.md) shows the `submit -> enqueue -> worker -> packaged_task -> future ready -> shutdown -> join` flow with Mermaid diagrams.
 
-```cpp
-auto task = std::make_shared<std::packaged_task<ReturnType()>>(...);
-std::future<ReturnType> result = task->get_future();
-```
+## 📝 Learning Notes
 
-The task queue stores all tasks as `std::function<void()>`:
-
-```cpp
-std::queue<std::function<void()>> taskQue_;
-```
-
-When a worker executes a queued task, it is essentially calling:
-
-```cpp
-(*task)();
-```
-
-Return values and exceptions are automatically written into the associated `std::future` by `std::packaged_task`.
-
-### Worker Thread Flow
-
-```text
-Wait until the task queue is not empty
-        ↓
-Take one task
-        ↓
-Wake up submitting threads that may be waiting for queue space
-        ↓
-Execute the user task
-        ↓
-Continue waiting for the next task
-```
-
-### Cached Worker Reclamation
-
-In cached mode, workers beyond the initial worker count do not wait for tasks forever.
-
-When such a worker stays idle longer than `threadMaxIdleTime_`, and the current worker count is still greater than the initial worker count, it will:
-
-1. update the worker counters;
-2. mark its own `WorkerState::finished`;
-3. exit the worker function;
-4. later be joined and removed from `threads_` by `reapFinishedThreadsLocked()` during a subsequent submit or scaling operation.
+- An earlier experimental design considered custom `Any` / `Result`-style wrappers. This version uses `std::future` and `std::packaged_task` instead, so return values and exceptions follow standard library semantics.
+- Cached workers cannot only decrement a counter when they exit. Their `std::thread` objects still have to be joined and removed from the worker list.
+- `shutdown()` does not clear queued tasks directly. Already submitted tasks are allowed to finish; otherwise callers holding `future` objects would need a separate cancellation policy.
+- The submit timeout is fixed at 1 second for now. It keeps the rejection behavior simple and easy to test, but it should probably become configurable later.
+- The current implementation does not support task cancellation, priority queues, or work stealing.
 
 ## ⚠️ Notes
 

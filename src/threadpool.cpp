@@ -21,8 +21,6 @@ ThreadPool::ThreadPool()
       isShuttingDown_(false) {}
 
 ThreadPool::~ThreadPool() {
-  // 析构时采用和用户显式调用相同的关闭流程：
-  // 停止接收新任务，等待已入队任务完成，然后回收工作线程。
   shutdown();
 }
 
@@ -32,29 +30,28 @@ void ThreadPool::shutdown() {
   {
     std::unique_lock<std::mutex> lock(taskQueMtx_);
 
-    // shutdown() 允许被重复调用。若另一个线程正在关闭，这里等待它完成即可。
+    // shutdown() 允许重复调用；并发关闭时只让一个线程执行回收。
     if (isShuttingDown_) {
       notEmpty_.wait(lock, [this] { return !isShuttingDown_; });
       return;
     }
 
-    // 已经关闭且没有线程需要回收，直接返回。
     if (!isPoolRunning_ && threads_.empty()) {
       return;
     }
 
-    // 关闭后不再接收新任务；队列中已有任务仍会被工作线程处理完。
+    // 先阻止新任务入队，队列中已有任务继续由 worker 消费。
     isShuttingDown_ = true;
     isPoolRunning_ = false;
   }
 
-  // 唤醒工作线程和可能阻塞在 submit() 中的提交线程，让它们重新检查状态。
+  // 唤醒 worker 和可能阻塞在 submit() 中的提交线程，让它们重新检查状态。
   notEmpty_.notify_all();
   notFull_.notify_all();
 
   {
     std::lock_guard<std::mutex> lock(taskQueMtx_);
-    // 把线程对象移出成员容器，在锁外 join，避免长时间持锁等待。
+    // join 不能在持锁状态下做，否则 worker 退出时可能反向等待同一把锁。
     workers.swap(threads_);
   }
 
@@ -64,7 +61,7 @@ void ThreadPool::shutdown() {
       continue;
     }
     if (worker.thread.get_id() == currentThreadId) {
-      // 防御性处理：如果用户任务内部调用 shutdown()，不能 join 当前线程。
+      // 防御性处理：不能 join 当前线程。
       worker.thread.detach();
     } else {
       worker.thread.join();
@@ -73,13 +70,11 @@ void ThreadPool::shutdown() {
 
   {
     std::lock_guard<std::mutex> lock(taskQueMtx_);
-    // 所有线程已经结束，统计值归零；后续 submit() 会因为未运行而失败。
     currentThreadSize_ = 0;
     idleThreadSize_ = 0;
     isShuttingDown_ = false;
   }
 
-  // 唤醒等待 shutdown() 完成的线程。
   notEmpty_.notify_all();
 }
 
@@ -149,12 +144,10 @@ void ThreadPool::start(std::size_t initThreadSize) {
 
   initThreadSize_ = initThreadSize;
 
-  // 如果用户设置的最大线程数比初始线程数还小，这里自动抬高到初始线程数。
-  // 否则 cached 模式会出现“刚启动就超过最大线程数”的矛盾状态。
+  // 保证 cached 模式下 currentThreadSize_ 不会一启动就超过上限。
   threadSizeThreshold_ = std::max(threadSizeThreshold_, initThreadSize_);
   isPoolRunning_ = true;
 
-  // 提前 reserve 可以减少 cached 扩容时 vector 扩容带来的移动成本。
   threads_.reserve(threadSizeThreshold_);
   for (std::size_t i = 0; i < initThreadSize_; ++i) {
     addThreadLocked();
@@ -162,7 +155,7 @@ void ThreadPool::start(std::size_t initThreadSize) {
 }
 
 void ThreadPool::addThreadLocked() {
-  // 先增加计数，再启动线程；如果创建线程失败，在 catch 中把计数回滚。
+  // 调用方持有 taskQueMtx_；失败时必须回滚 threads_ 和 currentThreadSize_。
   threads_.emplace_back();
   auto &worker = threads_.back();
   worker.state = std::make_shared<WorkerState>();
@@ -179,8 +172,7 @@ void ThreadPool::addThreadLocked() {
 
 void ThreadPool::reapFinishedThreadsLocked(std::unique_lock<std::mutex> &lock) {
   for (;;) {
-    // 每次从头查找一个已退出线程。join 期间会临时释放锁，
-    // 因此不能依赖释放锁前保存的迭代器继续遍历。
+    // join 期间会解锁，不能复用解锁前保存的迭代器继续遍历。
     auto it = std::find_if(threads_.begin(), threads_.end(),
                            [](const Worker &worker) {
                              return worker.state && worker.state->finished;
@@ -192,7 +184,7 @@ void ThreadPool::reapFinishedThreadsLocked(std::unique_lock<std::mutex> &lock) {
     std::thread thread = std::move(it->thread);
     it = threads_.erase(it);
 
-    // join 可能阻塞，必须放到锁外执行，避免影响 submit()/shutdown()。
+    // join 可能阻塞，必须放到锁外执行。
     lock.unlock();
     if (thread.joinable()) {
       if (thread.get_id() == std::this_thread::get_id()) {
@@ -206,7 +198,7 @@ void ThreadPool::reapFinishedThreadsLocked(std::unique_lock<std::mutex> &lock) {
 }
 
 void ThreadPool::threadFunc(std::shared_ptr<WorkerState> state) {
-  // 只能在持有 taskQueMtx_ 时调用：它同时修改线程统计值和 finished 标记。
+  // 只能在持有 taskQueMtx_ 时调用。
   auto finishThread = [this, state] {
     if (currentThreadSize_ > 0) {
       --currentThreadSize_;
@@ -220,31 +212,24 @@ void ThreadPool::threadFunc(std::shared_ptr<WorkerState> state) {
     {
       std::unique_lock<std::mutex> lock(taskQueMtx_);
 
-      // 线程进入等待区，说明当前没有立即执行用户任务，先记为空闲。
       ++idleThreadSize_;
 
       while (taskQue_.empty() && isPoolRunning_) {
         if (poolMode_ == ThreadPoolMode::MODE_CACHED &&
             currentThreadSize_ > initThreadSize_) {
-          // cached 模式中，超过初始数量的线程不会永久等待。
-          // 如果空闲时间达到上限还没有任务，它会退出并回收自己。
           auto status = notEmpty_.wait_for(lock, threadMaxIdleTime_);
           if (status == std::cv_status::timeout && taskQue_.empty() &&
               currentThreadSize_ > initThreadSize_) {
-            // 退出前必须同步修正两个计数：
-            // idleThreadSize_ 表示少了一个空闲线程；
-            // currentThreadSize_ 表示线程池总线程数减少。
+            // 退出前必须同步修正计数并标记 finished，供后续 join 回收。
             --idleThreadSize_;
             finishThread();
             return;
           }
         } else {
-          // fixed 模式，或者 cached 模式中的初始线程，需要一直等待任务。
           notEmpty_.wait(lock);
         }
       }
 
-      // 线程即将取任务或退出等待区，不再算作空闲。
       --idleThreadSize_;
 
       if (!isPoolRunning_ && taskQue_.empty()) {
@@ -256,11 +241,8 @@ void ThreadPool::threadFunc(std::shared_ptr<WorkerState> state) {
       taskQue_.pop();
     }
 
-    // 取走一个任务后，任务队列有了空位，可以唤醒可能阻塞的 submit()。
     notFull_.notify_one();
 
-    // 真正执行用户任务。
-    // 如果用户任务抛异常，packaged_task 会捕获异常并保存到 future 中。
     task();
   }
 }

@@ -54,6 +54,8 @@ cpp_thread_pool/
 │   └── threadpool.cpp    # Lifecycle, worker thread, and reclamation logic
 ├── example/
 │   └── example.cpp       # Usage example
+├── tests/
+│   └── threadpool_tests.cpp # Lightweight behavior tests
 ├── CMakeLists.txt
 ├── README.md          # English documentation
 ├── README_CN.md       # Simplified Chinese documentation
@@ -92,6 +94,12 @@ Run the example:
 
 # Linux / macOS
 ./build/threadpool_demo
+```
+
+Run tests:
+
+```bash
+ctest --test-dir build --output-on-failure
 ```
 
 ## 💡 Quick Start
@@ -338,7 +346,7 @@ When such a worker stays idle longer than `threadMaxIdleTime_`, and the current 
 
 ## 🗺️ Future Improvements
 
-- Add unit tests and stress tests;
+- Expand unit tests and add stress tests;
 - add task cancellation;
 - support priority task queues;
 - support configurable submit timeout duration;

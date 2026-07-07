@@ -23,3 +23,20 @@ target_include_directories(threadpool_demo PRIVATE
 
 # 链接平台线程库；在 Linux/macOS 上通常会展开为 pthread 相关参数。
 target_link_libraries(threadpool_demo PRIVATE Threads::Threads)
+
+# 开启 CTest，方便用 cmake --build 后统一运行测试。
+enable_testing()
+
+# 轻量级自测程序：不依赖第三方测试框架，覆盖线程池的关键行为。
+add_executable(threadpool_tests
+    tests/threadpool_tests.cpp
+    src/threadpool.cpp
+)
+
+target_include_directories(threadpool_tests PRIVATE
+    ${PROJECT_SOURCE_DIR}/include
+)
+
+target_link_libraries(threadpool_tests PRIVATE Threads::Threads)
+
+add_test(NAME threadpool_tests COMMAND threadpool_tests)
